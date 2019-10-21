@@ -8,7 +8,7 @@ setup(
     name='django-wikidata-api',
     version='0.0.0',
     packages=['django_wikidata_api'],
-    description='ORM for interfacing with Wikidata within a Django Project',
+    description='Python Package for interfacing with Wikidata within a Django App',
     long_description=README,
     author='Kenneth Seals-Nutt',
     author_email='kenneth@seals-nutt.com',
