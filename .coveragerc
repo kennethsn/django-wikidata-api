@@ -1,5 +1,0 @@
-[run]
-source = django_wikidata_api
-
-[html]
-directory = reports/htmlcov
