@@ -10,11 +10,23 @@ setup(
     packages=['django_wikidata_api'],
     description='Python Package for interfacing with Wikidata within a Django App',
     long_description=README,
+    long_description_content_type="text/markdown",
     author='Kenneth Seals-Nutt',
     author_email='kenneth@seals-nutt.com',
     url='https://github.com/kennethsn/django-wikidata-api',
     license='AGPL-3.0',
     install_requires=[
         'Django>=2.2,<2.3',
-    ]
+    ],
+    classifiers=[
+        "Development Status :: 1 - Planning",
+        "Natural Language :: English",
+        "Operating System :: MacOS :: MacOS X",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Framework :: Django",
+        "Framework :: Django :: 2.2",
+        "License :: OSI Approved :: GNU Affero General Public License v3"
+    ],
 )
