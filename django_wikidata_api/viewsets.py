@@ -10,15 +10,26 @@ from rest_framework import (
 )
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 
-def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item'):
+def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permission_classes=None):
+    """
+    Generate a Viewset class from a WikidataItem model.
+
+    Args:
+        wikidata_model (WikidataItemBase):
+        slug (Optional[str]): the url slug to be used for the api route patterns
+        permission_classes (Optional[List[BasePermission]]): any permission classes to set to access this viewset
+
+    Returns (WikidataItemViewSet):
+
+    """
     name = getattr(wikidata_model, 'model_name', "Wikidata Item")
     # TODO: Add Pluralize function
     name_plural = getattr(wikidata_model, 'model_name_plural', "{}s".format(name))
     serializer = wikidata_model.build_serializer()
+    _permission_classes = permission_classes or []
 
     class WikidataItemViewSet(viewsets.ViewSet):
         """
@@ -27,7 +38,7 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item'):
         serializer_class = serializer
         model = wikidata_model
         lookup_field = 'wikidata_id'
-        permission_classes = [IsAuthenticated, ]
+        permission_classes = _permission_classes
 
         @swagger_auto_schema(operation_summary="List All {}".format(name_plural),
                              operation_description="Get all {} from querying Wikidata using the Wikidata "
@@ -102,4 +113,4 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item'):
             router.register(r'{}'.format(slug), cls, base_name=slug)
             return url(r'^'.format(slug), include(router.urls), name=slug)
 
-    return WikidataItemViewSet.get_viewset_urls()
+    return WikidataItemViewSet

@@ -8,7 +8,7 @@ README = open(os.path.join(here, 'README.md')).read()
 
 setup(
     name='django-wikidata-api',
-    version='0.0.1',
+    version='0.0.2',
     packages=['django_wikidata_api'],
     description='Python Package for interfacing with Wikidata within a Django App',
     long_description=README,

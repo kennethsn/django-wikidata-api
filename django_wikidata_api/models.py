@@ -171,7 +171,8 @@ class WikidataItemBase(object):
         Returns (URLResolver): An object that can be added to urlpatterns
 
         """
-        return generate_wikidata_item_viewset(cls, slug)
+        viewset = generate_wikidata_item_viewset(cls, slug)
+        return viewset.get_viewset_urls()
 
     @classmethod
     def _query_wikidata(cls, values=None, limit=None):
