@@ -36,15 +36,17 @@ class WikidataItemBase(object):
     conformance = WikidataConformanceField()
 
     def __init__(self, **kwargs):
-        for key, field in self.get_fields(with_keys=True):
+        for key, field in self.get_wikidata_fields(with_keys=True):
             field.name = key
             setattr(self, key, None)
         set_kwargs(self, kwargs)
 
+    # CLASS METHODS
+
     @classmethod
-    def get_fields(cls, with_keys=False):
+    def get_wikidata_fields(cls, with_keys=False):
         """
-        Get all fields associated with this model.
+        Get all wikidata fields associated with this model.
         Args:
             with_keys (Optional[bool]): True to make the return zipped tuples by keys,
                                         False if iterable fields
@@ -69,11 +71,12 @@ class WikidataItemBase(object):
 
         """
         attrs = {}
-        for key, field in cls.get_fields(with_keys=True):
-            # TODO: Addd documentation explaining relationship between main and id
-            if key == 'main':
-                key = 'id'
-            attrs[key] = field.serializer
+        for key, field in cls.get_wikidata_fields(with_keys=True):
+            if cls._attr_is_public(key):
+                # TODO: Add documentation explaining relationship between main and id
+                if key == 'main':
+                    key = 'id'
+                attrs[key] = field.serializer
         return type('{}Serializer'.format(cls.__name__), (Serializer,), attrs)
 
     @classmethod
@@ -136,7 +139,7 @@ class WikidataItemBase(object):
 
         """
         # TODO: Add Offset
-        fields = cls().get_fields()
+        fields = cls().get_wikidata_fields()
         to_fields = ' '.join(f.to_wikidata_field() for f in fields)
         to_filters = ' '.join(f.to_wikidata_filter() for f in fields)
         to_services = ' '.join(f.to_wikidata_service() for f in fields)
@@ -201,20 +204,40 @@ class WikidataItemBase(object):
 
         """
         obj = cls()
-        for field in cls.get_fields():
-            setattr(obj, field.name, field.from_wikidata(wikidata_response))
+        for field in cls.get_wikidata_fields():
+            obj._set_wikidata_field(field, wikidata_response)
         obj.id = obj.main
         assert obj.id, "Wikidata Item Must Have Identifier"
         return obj.set_conformance() if with_conformance else obj
 
-    def _has_substring(self, substring):
-        return dict_has_substring(self.__dict__, substring)
+    @classmethod
+    def _attr_is_public(cls, attr):
+        """
+        Check if an attribute is public to the view layer.
+        Args:
+             attr (str): Name of attribute
 
-    def __repr__(self):
-        return "<{}: {}>".format(self.model_name, self.__str__())
+        Returns (Bool): True if attribute can be shown in the view layer, False otherwise.
 
-    def __str__(self):
-        return "{} ({})".format(self.label, self.main)
+        """
+        # TODO: Add support for metaclass to override '_' and is_wikidata_field
+        if attr.startswith('_'):
+            return False
+        return cls._attr_is_wikidata_field(attr)
+
+    @classmethod
+    def _attr_is_wikidata_field(cls, attr):
+        """
+        Check if an attribute is a field to be used for Wikidata interactions
+        Args:
+            attr (str): Name of attribute
+
+        Returns (Bool): True if attribute is instance of WikidataField, False otherwise
+
+        """
+        return isinstance(getattr(cls, attr), WikidataField)
+
+    # INSTANCE METHODS
 
     def set_conformance(self):
         if self.schema:
@@ -228,6 +251,48 @@ class WikidataItemBase(object):
                 'result': 'n/a'
             }
         return self
+
+    def _set_wikidata_field(self, field, wikidata_response):
+        """
+        Parse Wikidata Query Service response to set a corresponding attribute
+        Args:
+            field (WikidataField):
+            wikidata_response (Dict[str, Dict[str, str]]):
+
+        Returns (WikidataItemBase): self
+
+        """
+        setattr(self, field.name, field.from_wikidata(wikidata_response))
+        return self
+
+    def _has_substring(self, substring):
+        """
+        Check if substring matches any (public) attributes in model.
+        Args:
+            substring (str):
+
+        Returns (Bool): True if there is a match, False otherwise
+
+        """
+        return dict_has_substring(self._get_public_dict(), substring)
+
+    def _get_public_dict(self):
+        """
+        Get a dictionary representation of this instance that is safe for the view layer.
+        Returns (Dict):
+
+        """
+        public_dict = {}
+        for key, value in self.__dict__.items():
+            if self._attr_is_public(key):
+                public_dict[key] = value
+        return public_dict
+
+    def __repr__(self):
+        return "<{}: {}>".format(self.model_name, self.__str__())
+
+    def __str__(self):
+        return "{} ({})".format(self.label, self.main)
 
 
 class WDTriple(object):
