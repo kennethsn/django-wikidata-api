@@ -12,8 +12,8 @@
 
 ### 1.2. Commits
 -   All commit messages' first line should always follow a similar syntax:
-    -   `(#[Issue Reference Number]) [ACTION TYPE]: [simple summary]`
-    -   For example: `"(#7) DOC: Adding CI badges to README"`
+    -   `([next version to have this change]) [ACTION TYPE]: [simple summary]`
+    -   For example: `"(v0.0.3) DOC: Updating commit message syntax"`
     -   ***Action Types:***
         -   *`CONFIG`*: Generally used for tinkering with config files, dependency versioning, build-related code changes
         -   *`SETUP`*: Generally used for beginning work that will be enabling a future feature, such as bootstrapping the application framework with some starter code or adding empty directories/files in places where code will be
