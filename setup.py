@@ -1,3 +1,5 @@
+# coding=utf-8
+""" Setup script to build django-wikidata-api """
 import os
 from setuptools import setup
 
@@ -6,7 +8,7 @@ README = open(os.path.join(here, 'README.md')).read()
 
 setup(
     name='django-wikidata-api',
-    version='0.0.0',
+    version='0.0.1',
     packages=['django_wikidata_api'],
     description='Python Package for interfacing with Wikidata within a Django App',
     long_description=README,
@@ -17,6 +19,13 @@ setup(
     license='AGPL-3.0',
     install_requires=[
         'Django>=2.2,<2.3',
+        'djangorestframework>=3.10.3',
+        'drf-yasg>=1.17',
+        'mock',
+        'wikidataintegrator>=0.4.2, <0.4.3',
+        # Wikidataintegrator packages that aren't tied down
+        'pandas>=0.25.2',
+        'tqdm>=4.36.1',
     ],
     classifiers=[
         "Development Status :: 1 - Planning",
@@ -29,4 +38,5 @@ setup(
         "Framework :: Django :: 2.2",
         "License :: OSI Approved :: GNU Affero General Public License v3"
     ],
+    python_requires='>=3.6',
 )
