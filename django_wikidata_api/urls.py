@@ -1,3 +1,5 @@
+# coding=utf-8
+""" Register builtin url's here. """
 from django.conf.urls import url
 from django.urls import include
 from .views import schema_view

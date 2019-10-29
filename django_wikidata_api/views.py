@@ -1,3 +1,5 @@
+# coding=utf-8
+""" Register views here. """
 from django.conf import settings
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi

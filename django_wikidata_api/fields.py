@@ -3,6 +3,7 @@ from rest_framework import serializers
 from .serializers import WikidataConformanceSerializer
 from .utils import (
     get_wikidata_field,
+    is_private_name,
     set_kwargs
 )
 
@@ -12,28 +13,43 @@ from .utils import (
 
 class WikidataField(object):
     name = None
-    serializer_class = serializers.Field
+    serializer_field_class = serializers.Field
     default_serializer_settings = {}
     serializer = None
 
     def __init__(self, properties=None, values=None, default=None, required=False, entity_name='main',
-                 serializer_settings=None, **kwargs):
+                 serializer_settings=None, public=None, **kwargs):
         self.entity_name = entity_name
         self.properties = properties
         self.values = values
         self.default = default
         self.required = required
+        self.public = public  # used to override private _attrs
         set_kwargs(self, kwargs)
         self.set_serializer(serializer_settings or {})
 
     def __repr__(self):
         return "<{}: {}>".format(self.__class__.__name__, self.name)
 
+    def set_name(self, name):
+        """
+        Sets .name and keeps .public consistent based on python convention
+        Args:
+            name (str):
+
+        Returns (WikidataField): self
+
+        """
+        self.name = name
+        if self.public is None:
+            self.public = not is_private_name(name)
+        return self
+
     def set_serializer(self, serializer_settings):
         for key, value in self.default_serializer_settings.items():
             if key not in serializer_settings:
                 serializer_settings[key] = value
-        self.serializer = self.serializer_class(**serializer_settings)
+        self.serializer = self.serializer_field_class(**serializer_settings)
 
     def _prop_sparql_string(self):
         return "wdt:{}".format('|wdt:'.join(self.properties))
@@ -60,12 +76,27 @@ class WikidataListResponseMixin(object):
     separator = '|'
     name = None
     default = None
-    serializer_class = serializers.ListField
+    serializer_field_class = serializers.ListField
     default_serializer_settings = {'allow_null': True, 'allow_empty': True}
 
     def from_wikidata(self, wikidata_response):
         field = get_wikidata_field(wikidata_response, self.name, self.default)
         return field.split(self.separator) if field else self.default
+
+
+class WikidataNoSPARQLMixin(object):
+    def to_wikidata_field(self):
+        return ""
+
+    def to_wikidata_filter(self):
+        return ""
+
+    def to_wikidata_service(self):
+        return ""
+
+    def to_wikidata_group(self):
+        return ""
+
 
 
 class WikidataStringField(WikidataField):
@@ -74,7 +105,7 @@ class WikidataStringField(WikidataField):
 
 class WikidataLabelField(WikidataField):
     suffix = 'Label'
-    serializer_class = serializers.CharField
+    serializer_field_class = serializers.CharField
     default_serializer_settings = {'allow_null': False, 'allow_blank': False}
 
     def __init__(self, **kwargs):
@@ -97,7 +128,7 @@ class WikidataLabelField(WikidataField):
 
 class WikidataEntityField(WikidataField):
     # TODO: Add Item and Property SubClasses
-    serializer_class = serializers.RegexField
+    serializer_field_class = serializers.RegexField
     default_serializer_settings = {'allow_blank': False, 'regex': "(Q|q)\d+", 'min_length': 2, 'max_length': 20,
                                    'help_text': "Wikidata Item Identifier (ex. Q59961716)"}
     wikidata_filter = None
@@ -176,22 +207,18 @@ class WikidataEntityListField(WikidataListField):
         return "?{self.name}_item rdfs:label ?{self.name}_itemLabel . ".format(self=self)
 
 
-class WikidataConformanceField(WikidataField):
-    serializer_class = WikidataConformanceSerializer
+class WikidataConformanceField(WikidataNoSPARQLMixin, WikidataField):
+    serializer_field_class = WikidataConformanceSerializer
     default_serializer_settings = {}
 
     # def __init__(self, **kwargs):
     #     super(WikidataLabelField, self).__init__(**kwargs)
     #     self.from_name = "{}{}".format(self.entity_name, self.suffix)
 
-    def to_wikidata_field(self):
-        return ""
 
-    def to_wikidata_filter(self):
-        return ""
+class ModelPropertyField(object):
+    """ Meta-Object used to register a model property as a view field. """
 
-    def to_wikidata_service(self):
-        return ""
-
-    def to_wikidata_group(self):
-        return ""
+    def __init__(self, name, serializer):
+        self.name = name
+        self.serializer = serializer
