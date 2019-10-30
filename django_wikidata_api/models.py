@@ -13,6 +13,7 @@ from .fields import (
 )
 from .utils import (
     dict_has_substring,
+    is_private_name,
     set_kwargs
 )
 from .viewsets import generate_wikidata_item_viewset
@@ -25,8 +26,13 @@ _logger = logging.getLogger(__name__)
 # TODO: (currently child must declare a "main" in order to build query in proper order)
 class WikidataItemBase(object):
     """ Base Wikidata Item Model """
-    model_name = 'Wikidata Item'
-    model_name_plural = 'Wikidata Items'
+    # TODO: Add model name and stuff to meta class
+    class Meta(object):
+        """ Meta options for this model. """
+        verbose_name = 'Wikidata Item'
+        verbose_name_plural = None
+        property_fields = None  # TODO: Make a property_field decorator
+
     main = WikidataEntityField(triples=[], required=True)
     label = WikidataLabelField(required=True)
     alt_labels = WikidataAltLabelField()
@@ -35,21 +41,39 @@ class WikidataItemBase(object):
     id = None
     conformance = WikidataConformanceField()
 
+    # dynamically set class attributes:
+    _wikidata_fields = None  # Set by _load_wikidata_fields()
+
     def __init__(self, **kwargs):
-        for key, field in self.get_fields(with_keys=True):
-            field.name = key
+        for key, field in self.get_wikidata_fields(with_keys=True):
             setattr(self, key, None)
         set_kwargs(self, kwargs)
 
+    # CLASS METHODS
     @classmethod
-    def get_fields(cls, with_keys=False):
+    def get_model_name(cls):
         """
-        Get all fields associated with this model.
-        Args:
-            with_keys (Optional[bool]): True to make the return zipped tuples by keys,
-                                        False if iterable fields
+        Get the name of this Model.
+        Returns (str):
 
-        Returns (Union[zip[str, WikidataField], List[WikidataField]]):
+        """
+        return cls.Meta.verbose_name
+
+    @classmethod
+    def get_model_name_plural(cls):
+        """
+        Get the plural name of this Model.
+        Returns (str):
+
+        """
+        # TODO: add pluralize utility
+        return cls.Meta.verbose_name_plural or "{}s".format(cls.get_model_name())
+
+    @classmethod
+    def _load_wikidata_fields(cls):
+        """
+        Load Wikidata Fields for this model by setting names based on model attribute.
+        Returns (Class[WikidataItemBase]): cls
 
         """
         fields = []
@@ -57,9 +81,40 @@ class WikidataItemBase(object):
         for sub_cls in cls.__mro__:
             for key, field in sub_cls.__dict__.items():
                 if isinstance(field, WikidataField) and key not in keys:
+                    field.set_name(key)
                     keys.append(key)
                     fields.append(field)
-        return zip(keys, fields) if with_keys else fields
+        cls._wikidata_fields = zip(keys, fields)
+        assert cls._wikidata_fields is not None, "No Wikidata Fields Loaded"
+        return cls
+
+    @classmethod
+    def get_wikidata_fields(cls, with_keys=False):
+        """
+        Get all wikidata fields associated with this model.
+        Args:
+            with_keys (Optional[bool]): True to make the return zipped tuples by keys,
+                                        False if iterable fields
+
+        Returns (Union[zip[str, WikidataField], List[WikidataField]]):
+
+        """
+        cls._load_wikidata_fields()
+        return cls._wikidata_fields if with_keys else [field for key, field in cls._wikidata_fields]
+
+    @classmethod
+    def get_view_fields(cls):
+        """
+        Get all public fields that will be represent this model in a Rest API response
+        Returns (List[Tuple[str, Class[Union[WikidataField, Field]]]]):
+
+        """
+        view_fields = [(key, field) for key, field
+                       in cls.get_wikidata_fields(with_keys=True)
+                       if cls._attr_is_public(key)]
+        if cls.Meta.property_fields:
+            view_fields.extend((field.name, field) for field in cls.Meta.property_fields)
+        return view_fields
 
     @classmethod
     def build_serializer(cls):
@@ -69,8 +124,8 @@ class WikidataItemBase(object):
 
         """
         attrs = {}
-        for key, field in cls.get_fields(with_keys=True):
-            # TODO: Addd documentation explaining relationship between main and id
+        for key, field in cls.get_view_fields():
+            # TODO: Add documentation explaining relationship between main and id
             if key == 'main':
                 key = 'id'
             attrs[key] = field.serializer
@@ -109,7 +164,7 @@ class WikidataItemBase(object):
         wikidata_response = cls._query_wikidata((entity_id,), limit=1)
         if wikidata_response:
             return cls._from_wikidata(wikidata_response[0], with_conformance)
-        _logger.warning("Unable to find %s with Wikidata Entity ID '%s'", cls.model_name, entity_id)
+        _logger.warning("Unable to find %s with Wikidata Entity ID '%s'", cls.Meta.verbose_name, entity_id)
         return None
 
     @classmethod
@@ -136,7 +191,7 @@ class WikidataItemBase(object):
 
         """
         # TODO: Add Offset
-        fields = cls().get_fields()
+        fields = cls().get_wikidata_fields()
         to_fields = ' '.join(f.to_wikidata_field() for f in fields)
         to_filters = ' '.join(f.to_wikidata_filter() for f in fields)
         to_services = ' '.join(f.to_wikidata_service() for f in fields)
@@ -201,20 +256,39 @@ class WikidataItemBase(object):
 
         """
         obj = cls()
-        for field in cls.get_fields():
-            setattr(obj, field.name, field.from_wikidata(wikidata_response))
+        for field in cls.get_wikidata_fields():
+            obj._set_wikidata_field(field, wikidata_response)
         obj.id = obj.main
         assert obj.id, "Wikidata Item Must Have Identifier"
         return obj.set_conformance() if with_conformance else obj
 
-    def _has_substring(self, substring):
-        return dict_has_substring(self.__dict__, substring)
+    @classmethod
+    def _attr_is_public(cls, attr):
+        """
+        Check if an attribute is public to the view layer.
+        Args:
+             attr (str): Name of attribute
 
-    def __repr__(self):
-        return "<{}: {}>".format(self.model_name, self.__str__())
+        Returns (Bool): True if attribute can be shown in the view layer, False otherwise.
 
-    def __str__(self):
-        return "{} ({})".format(self.label, self.main)
+        """
+        if cls._attr_is_wikidata_field(attr):
+            return getattr(cls, attr).public
+        return not is_private_name(attr)
+
+    @classmethod
+    def _attr_is_wikidata_field(cls, attr):
+        """
+        Check if an attribute is a field to be used for Wikidata interactions
+        Args:
+            attr (str): Name of attribute
+
+        Returns (Bool): True if attribute is instance of WikidataField, False otherwise
+
+        """
+        return isinstance(getattr(cls, attr), WikidataField)
+
+    # INSTANCE METHODS
 
     def set_conformance(self):
         if self.schema:
@@ -228,6 +302,46 @@ class WikidataItemBase(object):
                 'result': 'n/a'
             }
         return self
+
+    def _set_wikidata_field(self, field, wikidata_response):
+        """
+        Parse Wikidata Query Service response to set a corresponding attribute
+        Args:
+            field (WikidataField):
+            wikidata_response (Dict[str, Dict[str, str]]):
+
+        Returns (WikidataItemBase): self
+
+        """
+        setattr(self, field.name, field.from_wikidata(wikidata_response))
+        return self
+
+    def _has_substring(self, substring):
+        """
+        Check if substring matches any (public) attributes in model.
+        Args:
+            substring (str):
+
+        Returns (Bool): True if there is a match, False otherwise
+
+        """
+        return dict_has_substring(self._get_public_dict(), substring)
+
+    def _get_public_dict(self):
+        """
+        Get a dictionary representation of this instance that is safe for the view layer.
+        Returns (Dict):
+
+        """
+        # TODO: consider a caching or performance boost to build serializer so that it only
+        #       needs to be built once
+        return self.build_serializer()(self).data
+
+    def __repr__(self):
+        return "<{}: {}>".format(self.Meta.verbose_name, self.__str__())
+
+    def __str__(self):
+        return "{} ({})".format(self.label, self.main)
 
 
 class WDTriple(object):

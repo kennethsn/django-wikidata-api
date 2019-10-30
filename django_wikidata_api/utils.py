@@ -1,3 +1,7 @@
+# coding=utf-8
+""" utility functions needed for django-wikidata-api. """
+
+
 def get_wikidata_field(wikidata_response_dict, key, default=None):
     # TODO: create a wikidata response object and move this to its instance method
     try:
@@ -20,3 +24,20 @@ def dict_has_substring(haystack, needle):
 def set_kwargs(obj, kwargs):
     for key, value in kwargs.items():
         setattr(obj, key, value)
+
+
+def is_private_name(name_string):
+    """
+    Check if this string is written in a private/protected reference python convention
+    Args:
+        name_string (str):
+
+    Returns (Bool): True if variable begins with "_", False otherwise
+
+    Examples:
+        >>> is_private_name("_some_var_name")
+        True
+        >>> is_private_name("some_var_name")
+        False
+    """
+    return name_string.startswith("_")

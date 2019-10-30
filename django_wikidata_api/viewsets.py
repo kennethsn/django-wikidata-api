@@ -25,9 +25,8 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
     Returns (WikidataItemViewSet):
 
     """
-    name = getattr(wikidata_model, 'model_name', "Wikidata Item")
-    # TODO: Add Pluralize function
-    name_plural = getattr(wikidata_model, 'model_name_plural', "{}s".format(name))
+    name = wikidata_model.get_model_name()
+    name_plural = wikidata_model.get_model_name_plural()
     serializer = wikidata_model.build_serializer()
     _permission_classes = permission_classes or []
 
@@ -108,7 +107,7 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
 
         @classmethod
         def get_viewset_urls(cls):
-            # TODO: Possibly add slugify function to pull from class name
+            # TODO: Possibly add slugify function to pull from class name/model name
             router = routers.DefaultRouter()
             router.register(r'{}'.format(slug), cls, base_name=slug)
             return url(r'^'.format(slug), include(router.urls), name=slug)

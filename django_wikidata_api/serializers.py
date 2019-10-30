@@ -1,12 +1,20 @@
-from rest_framework import serializers
+# coding=utf-8
+""" django-rest-framework serializers that have specialized Wikidata context """
+from rest_framework.fields import (
+    BooleanField,
+    CharField,
+    ListField,
+    RegexField,
+)
+from rest_framework.serializers import Serializer
 
 
-class WikidataItemSerializer(serializers.Serializer):
+class WikidataItemSerializer(Serializer):
     # TODO: Add QID validator and QIDField
-    id = serializers.RegexField(regex="(Q|q)\d+", allow_blank=False, min_length=2, max_length=20,
-                                help_text="Wikidata Item Identifier (ex. Q59961716)")
-    label = serializers.CharField(allow_null=False, allow_blank=False)
-    alt_labels = serializers.ListField(allow_null=True, allow_empty=True)
+    id = RegexField(regex="(Q|q)\d+", allow_blank=False, min_length=2, max_length=20,
+                    help_text="Wikidata Item Identifier (ex. Q59961716)")
+    label = CharField(allow_null=False, allow_blank=False)
+    alt_labels = ListField(allow_null=True, allow_empty=True)
 
     def create(self, validated_data):
         # TODO: Add a create method that would call a .create method of the model
@@ -17,12 +25,12 @@ class WikidataItemSerializer(serializers.Serializer):
         pass
 
 
-class WikidataConformanceSerializer(serializers.Serializer):
+class WikidataConformanceSerializer(Serializer):
     # TODO: Add QID validator and QIDField
-    focus = serializers.RegexField(regex="(Q|q)\d+", allow_blank=False, min_length=2, max_length=20,
-                                   help_text="Wikidata Item Identifier (ex. Q59961716)")
-    reason = serializers.CharField(allow_null=False, allow_blank=False)
-    result = serializers.BooleanField(allow_null=True)
+    focus = RegexField(regex="(Q|q)\d+", allow_blank=False, min_length=2, max_length=20,
+                       help_text="Wikidata Item Identifier (ex. Q59961716)")
+    reason = CharField(allow_null=False, allow_blank=False)
+    result = BooleanField(allow_null=True)
 
     def create(self, validated_data):
         # TODO: Add a create method that would call a .create method of the model

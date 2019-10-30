@@ -7,9 +7,9 @@ from django.test import TestCase
 from django.urls import URLResolver
 
 from django_wikidata_api.fields import WikidataField
-from django_wikidata_api.models import (
-    WikidataItemBase
-)
+from django_wikidata_api.models import WikidataItemBase
+
+from .examples import CustomTestModel
 
 
 class WikidataItemBaseTests(TestCase):
@@ -36,6 +36,11 @@ class WikidataItemBaseTests(TestCase):
             }
         }
         self.mocked_query_response_empty = {'results': {'bindings': []}}
+        self.CustomTestModel = CustomTestModel
+        self.custom_test_item = self.CustomTestModel()
+        self.custom_test_item_full = self.CustomTestModel(label="Test Item", main="Q123", id=123, alt_labels=["Test"],
+                                                          test_field=["Test"], _private_field=["TestPrivate"],
+                                                          hidden_field=["TestHidden"], _public_field=["TestPublic"])
 
     def test___init__(self):
         self.assertIsNone(self.test_item.alt_labels)
@@ -44,19 +49,59 @@ class WikidataItemBaseTests(TestCase):
         self.assertIsNone(self.test_item.conformance)
         self.assertIsNone(self.test_item.id)
         self.assertIsNone(self.test_item.schema)
-        self.assertEqual(self.test_item.model_name, "Wikidata Item")
-        self.assertEqual(self.test_item.model_name_plural, "Wikidata Items")
+        self.assertEqual(self.test_item.Meta.verbose_name, "Wikidata Item")
+        self.assertIsNone(self.test_item.Meta.verbose_name_plural)
+
+        self.assertIsNone(self.custom_test_item.alt_labels)
+        self.assertIsNone(self.custom_test_item.main)
+        self.assertIsNone(self.custom_test_item.label)
+        self.assertIsNone(self.custom_test_item.conformance)
+        self.assertIsNone(self.custom_test_item.id)
+        self.assertIsNone(self.custom_test_item.schema)
+        self.assertIsNone(self.custom_test_item.hidden_field)
+        self.assertIsNone(self.custom_test_item._public_field)
+        self.assertIsNone(self.custom_test_item.test_field)
+        self.assertIsNone(self.custom_test_item._private_field)
+        self.assertEqual(self.custom_test_item.test_property, "Test Value")
+        self.assertEqual(self.custom_test_item.test_property_2, "blue")
+        self.assertEqual(self.custom_test_item.test_attr, "Test Attr")
+        self.assertEqual(self.custom_test_item.test_attr_2, 37)
+        self.assertEqual(self.custom_test_item.Meta.verbose_name, "Test Model")
+        self.assertEqual(self.custom_test_item.Meta.verbose_name_plural, "Test Model Instances")
 
     def test___init__with_kwargs(self):
         self.assertEqual(self.test_item_full.label, "Test Item")
         self.assertEqual(self.test_item_full.main, "Q123")
         self.assertEqual(self.test_item_full.alt_labels, ["Test"])
         self.assertEqual(self.test_item_full.id, 123)
-        self.assertEqual(self.test_item.model_name, "Wikidata Item")
-        self.assertEqual(self.test_item.model_name_plural, "Wikidata Items")
+        self.assertEqual(self.test_item.Meta.verbose_name, "Wikidata Item")
+        self.assertIsNone(self.test_item.Meta.verbose_name_plural)
 
-    def test_get_fields(self):
-        fields = WikidataItemBase.get_fields()
+        self.assertEqual(self.custom_test_item_full.label, "Test Item")
+        self.assertEqual(self.custom_test_item_full.main, "Q123")
+        self.assertEqual(self.custom_test_item_full.alt_labels, ["Test"])
+        self.assertEqual(self.custom_test_item_full.id, 123)
+        self.assertEqual(self.custom_test_item_full.hidden_field, ["TestHidden"])
+        self.assertEqual(self.custom_test_item_full.test_field, ["Test"])
+        self.assertEqual(self.custom_test_item_full._public_field, ["TestPublic"])
+        self.assertEqual(self.custom_test_item_full._private_field, ["TestPrivate"])
+        self.assertEqual(self.custom_test_item_full.test_property, "Test Value")
+        self.assertEqual(self.custom_test_item_full.test_property_2, "blue")
+        self.assertEqual(self.custom_test_item_full.test_attr, "Test Attr")
+        self.assertEqual(self.custom_test_item_full.test_attr_2, 37)
+        self.assertEqual(self.custom_test_item_full.Meta.verbose_name, "Test Model")
+        self.assertEqual(self.custom_test_item_full.Meta.verbose_name_plural, "Test Model Instances")
+
+    def test_get_model_name(self):
+        self.assertEqual(self.test_item.get_model_name(), "Wikidata Item")
+        self.assertEqual(self.custom_test_item.get_model_name(), "Test Model")
+
+    def test_get_model_name_plural(self):
+        self.assertEqual(self.test_item.get_model_name_plural(), "Wikidata Items")
+        self.assertEqual(self.custom_test_item.get_model_name_plural(), "Test Model Instances")
+
+    def test_get_wikidata_fields(self):
+        fields = WikidataItemBase.get_wikidata_fields()
         field_names = []
         for field in fields:
             self.assertIsInstance(field, WikidataField)
@@ -67,8 +112,8 @@ class WikidataItemBaseTests(TestCase):
         self.assertIn("alt_labels", field_names)
         self.assertIn("conformance", field_names)
 
-    def test_get_fields__with_keys(self):
-        fields = sorted(WikidataItemBase.get_fields(with_keys=True), key=lambda x: x[0])
+    def test_get_wikidata_fields__with_keys(self):
+        fields = sorted(WikidataItemBase.get_wikidata_fields(with_keys=True), key=lambda x: x[0])
         self.assertEqual(len(fields), 4)
         self.assertEqual("alt_labels", fields[0][0])
         self.assertIsInstance(fields[0][1], WikidataField)
@@ -92,6 +137,30 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(serializer_data['conformance']['focus'], '123')
         self.assertEqual(serializer_data['conformance']['reason'], 'No Schema associated with this model')
         self.assertTrue(serializer_data['conformance']['result'])
+
+    def test_build_serializer__custom_model(self):
+        serializer_class = self.CustomTestModel.build_serializer()
+        self.assertTrue(issubclass(serializer_class, Serializer))
+        self.custom_test_item_full.set_conformance()
+        serializer = serializer_class(self.custom_test_item_full)
+        self.assertIsInstance(serializer, Serializer)
+        serializer_data = serializer.data
+        self.assertEqual(serializer_data['id'], '123')
+        self.assertEqual(serializer_data['alt_labels'], ["Test"])
+        self.assertEqual(serializer_data['label'], "Test Item")
+        self.assertEqual(serializer_data['conformance']['focus'], '123')
+        self.assertEqual(serializer_data['conformance']['reason'], 'No Schema associated with this model')
+        self.assertTrue(serializer_data['conformance']['result'])
+        self.assertNotIn('_private_field', serializer_data)
+        self.assertNotIn('hidden_field', serializer_data)
+        self.assertEqual(serializer_data['_public_field'], ['TestPublic'])
+        self.assertEqual(serializer_data['test_field'], ["Test"])
+        self.assertEqual(serializer_data['test_property'], "Test Value")
+        self.assertNotIn("test_property_2", serializer_data)
+        self.assertEqual(serializer_data["color"], "blue")
+        self.assertEqual(serializer_data['test_attr'], "Test Attr")
+        self.assertNotIn("test_attr_2", serializer_data)
+        self.assertEqual(serializer_data["age"], "37")
 
     @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
     def test_get_all(self, mocked_execute_query):
@@ -212,6 +281,21 @@ class WikidataItemBaseTests(TestCase):
         self.assertNotIn("\n", output)
         self.assertNotIn("\t", output)
 
+    def test_get_viewset_urls(self):
+        urls = WikidataItemBase.get_viewset_urls()
+        self.assertIsInstance(urls, URLResolver)
+        self.assertEqual(len(urls.url_patterns), 8)
+        for pattern in urls.url_patterns:
+            if pattern.name != 'api-root':
+                self.assertIn("wikidata_item", pattern.name)
+
+        urls = WikidataItemBase.get_viewset_urls('some_other_slug')
+        self.assertIsInstance(urls, URLResolver)
+        self.assertEqual(len(urls.url_patterns), 8)
+        for pattern in urls.url_patterns:
+            if pattern.name != 'api-root':
+                self.assertIn("some_other_slug", pattern.name)
+
     @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
     def test__query_wikidata(self, mocked_execute_query):
         mocked_execute_query.return_value = self.mocked_query_response_empty
@@ -247,17 +331,32 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(output.conformance['reason'], 'No Schema associated with this model')
         self.assertTrue(output.conformance['result'])
 
-    def test_get_viewset_urls(self):
-        urls = WikidataItemBase.get_viewset_urls()
-        self.assertIsInstance(urls, URLResolver)
-        self.assertEqual(len(urls.url_patterns), 8)
-        for pattern in urls.url_patterns:
-            if pattern.name != 'api-root':
-                self.assertIn("wikidata_item", pattern.name)
+    def test__has_substring(self):
+        self.assertFalse(self.test_item._has_substring("something"))
+        self.assertFalse(self.test_item._has_substring("Test"))
+        self.assertFalse(self.test_item._has_substring("Test"))
+        self.assertFalse(self.test_item_full._has_substring("something"))
+        self.assertFalse(self.test_item_full._has_substring("Q123"))
+        self.assertTrue(self.test_item_full._has_substring("item"))
+        self.assertTrue(self.test_item_full._has_substring("Test Item"))
+        self.assertTrue(self.test_item_full._has_substring("123"))
+        self.assertFalse(self.custom_test_item_full._has_substring("something"))
+        self.assertFalse(self.custom_test_item_full._has_substring("TestPrivate"))
+        self.assertTrue(self.custom_test_item_full._has_substring("TestPublic"))
+        self.assertFalse(self.custom_test_item_full._has_substring("TestHidden"))
+        self.assertFalse(self.custom_test_item_full._has_substring("Q123"))
+        self.assertTrue(self.custom_test_item_full._has_substring("item"))
+        self.assertTrue(self.custom_test_item_full._has_substring("Test Item"))
+        self.assertTrue(self.custom_test_item_full._has_substring("123"))
 
-        urls = WikidataItemBase.get_viewset_urls('some_other_slug')
-        self.assertIsInstance(urls, URLResolver)
-        self.assertEqual(len(urls.url_patterns), 8)
-        for pattern in urls.url_patterns:
-            if pattern.name != 'api-root':
-                self.assertIn("some_other_slug", pattern.name)
+    def test___repr__(self):
+        self.assertEqual(repr(self.test_item), "<Wikidata Item: None (None)>")
+        self.assertEqual(repr(self.test_item_full), "<Wikidata Item: Test Item (Q123)>")
+        self.assertEqual(repr(self.custom_test_item), "<Test Model: None (None)>")
+        self.assertEqual(repr(self.custom_test_item_full), "<Test Model: Test Item (Q123)>")
+
+    def test___str__(self):
+        self.assertEqual(str(self.test_item), "None (None)")
+        self.assertEqual(str(self.test_item_full), "Test Item (Q123)")
+        self.assertEqual(str(self.custom_test_item), "None (None)")
+        self.assertEqual(str(self.custom_test_item_full), "Test Item (Q123)")
