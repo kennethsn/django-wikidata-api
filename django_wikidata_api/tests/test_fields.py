@@ -1,5 +1,5 @@
 # coding=utf-8
-""" Unit tests for models.py """
+""" Unit tests for fields.py """
 from rest_framework.fields import (
     CharField,
     Field,
