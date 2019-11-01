@@ -1,3 +1,5 @@
+# coding=utf-8
+""" Django Model-like fields to structure and parse Wikidata Query Service interactions """
 from rest_framework import serializers
 
 from .serializers import WikidataConformanceSerializer
@@ -12,10 +14,12 @@ from .utils import (
 
 
 class WikidataField(object):
+    """Base WikidataItem Model field used to build and parse SPARQL queries."""
     name = None
     serializer_field_class = serializers.Field
     default_serializer_settings = {}
     serializer = None
+    sparql_field_suffix = ""
 
     def __init__(self, properties=None, values=None, default=None, required=False, entity_name='main',
                  serializer_settings=None, public=None, **kwargs):
@@ -25,6 +29,7 @@ class WikidataField(object):
         self.default = default
         self.required = required
         self.public = public  # used to override private _attrs
+        self.from_name = "?{}{}".format(self.entity_name, self.sparql_field_suffix)
         set_kwargs(self, kwargs)
         self.set_serializer(serializer_settings or {})
 
@@ -33,7 +38,7 @@ class WikidataField(object):
 
     def set_name(self, name):
         """
-        Sets .name and keeps .public consistent based on python convention
+        Set self.name and keep self.public consistent based on python convention.
         Args:
             name (str):
 
@@ -46,29 +51,70 @@ class WikidataField(object):
         return self
 
     def set_serializer(self, serializer_settings):
+        """
+        Instantiate self.serializer with self.serializer_field_class.
+        Args:
+            serializer_settings (dict) options to be passed into the field class:
+
+        Returns (WikidataField): self
+
+        """
         for key, value in self.default_serializer_settings.items():
             if key not in serializer_settings:
                 serializer_settings[key] = value
         self.serializer = self.serializer_field_class(**serializer_settings)
+        return self
 
     def _prop_sparql_string(self):
         return "wdt:{}".format('|wdt:'.join(self.properties))
 
     def to_wikidata_field(self):
+        """
+        Get the portion of a SPARQL query that specifies the field name.
+        Returns (str):
+
+        """
         return "?{self.name}".format(self=self)
 
     def to_wikidata_filter(self):
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+        Returns (str):
+
+        Raises (AssertionError): If there are no self.properties defined
+
+        """
+        assert isinstance(self.properties, list) and len(self.properties), \
+            "There are no properties associated with this field."
         prop_string = self._prop_sparql_string()
         wd_triple = "?{self.entity_name} {props} ?{self.name}.".format(self=self, props=prop_string)
-        return wd_triple if self.required else "OPTIONAL {{}}".format(wd_triple)
+        return wd_triple if self.required else "OPTIONAL {{ {} }}".format(wd_triple)
 
     def to_wikidata_service(self):
+        """
+        Get the portion of a SPARQL query that handles additional service information.
+        Returns (""):
+
+        """
         return ""
 
     def to_wikidata_group(self):
-        return ""
+        """
+        Get the portion of a SPARQL query in the GROUP BY clause.
+        Returns (str):
+
+        """
+        return self.from_name
 
     def from_wikidata(self, wikidata_response):
+        """
+        Get the field's value from Wikidata query service response.
+        Args:
+            wikidata_response (Dict[str, Dict[str, str]]):
+
+        Returns (str):
+
+        """
         return get_wikidata_field(wikidata_response, self.name, self.default)
 
 
@@ -98,32 +144,55 @@ class WikidataNoSPARQLMixin(object):
         return ""
 
 
-
-class WikidataStringField(WikidataField):
-    pass
-
-
-class WikidataLabelField(WikidataField):
-    suffix = 'Label'
+class WikidataCharField(WikidataField):
+    """ WikidataItem Model field used to build and parse SPARQL queries as a string. """
     serializer_field_class = serializers.CharField
+
+
+class WikidataLabelField(WikidataCharField):
+    """ WikidataItem Model field used to build and parse entity labels in SPARQL queries. """
     default_serializer_settings = {'allow_null': False, 'allow_blank': False}
+    service_property = "rdfs:label"
+    sparql_field_suffix = 'Label'
 
     def __init__(self, **kwargs):
         super(WikidataLabelField, self).__init__(**kwargs)
-        self.from_name = "{}{}".format(self.entity_name, self.suffix)
 
     def to_wikidata_field(self):
-        return "?{self.from_name} (?{self.from_name} AS ?{self.name})".format(self=self)
+        """
+        Get the portion of a SPARQL query that specifies the field name.
+        Returns (str):
+
+        """
+        return "{self.from_name} ({self.from_name} AS ?{self.name})".format(self=self)
 
     def to_wikidata_filter(self):
-        return ''  # Labels are not in the WHERE clause in a SPARQL query
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+
+        Notes:
+            Labels are not in the WHERE clause in a SPARQL query
+
+        Returns (""):
+
+        """
+        return ""
 
     def to_wikidata_service(self):
-        # TODO: Merge similarities with entity list label
-        return "?{self.entity_name} rdfs:label ?{self.from_name} . ".format(self=self)
+        """
+        Get the portion of a SPARQL query that handles additional service information.
+        Returns (str):
 
-    def to_wikidata_group(self):
-        return "?{self.from_name}".format(self=self)
+        """
+        # TODO: Merge similarities with entity list label
+        return "?{self.entity_name} {self.service_property} {self.from_name} . ".format(self=self)
+
+
+class WikidataDescriptionField(WikidataLabelField):
+    """ Wikidata Field to bind a description to an entity field. """
+    default_serializer_settings = {'allow_null': True, 'allow_blank': True}
+    service_property = "schema:description"
+    sparql_field_suffix = 'Description'
 
 
 class WikidataEntityField(WikidataField):
@@ -178,6 +247,14 @@ class WikidataListField(WikidataListResponseMixin, WikidataField):
         prop_string = self._prop_sparql_string()
         wd_filter = "?{self.entity_name} {props} ?{self.name}_item .".format(self=self, props=prop_string)
         return wd_filter if self.required else "OPTIONAL {{ {} }}".format(wd_filter)
+
+    def to_wikidata_group(self):
+        """
+        Get the portion of a SPARQL query in the GROUP BY clause.
+        Returns (""):
+
+        """
+        return ""
 
 
 class WikidataAltLabelField(WikidataListField):
