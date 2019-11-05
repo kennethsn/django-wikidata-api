@@ -7,6 +7,7 @@ from wikidataintegrator.wdi_core import WDItemEngine
 from .fields import (
     WikidataAltLabelField,
     WikidataConformanceField,
+    WikidataDescriptionField,
     WikidataEntityField,
     WikidataField,
     WikidataLabelField
@@ -26,7 +27,6 @@ _logger = logging.getLogger(__name__)
 # TODO: (currently child must declare a "main" in order to build query in proper order)
 class WikidataItemBase(object):
     """ Base Wikidata Item Model """
-    # TODO: Add model name and stuff to meta class
     class Meta(object):
         """ Meta options for this model. """
         verbose_name = 'Wikidata Item'
@@ -35,6 +35,7 @@ class WikidataItemBase(object):
 
     main = WikidataEntityField(triples=[], required=True)
     label = WikidataLabelField(required=True)
+    description = WikidataDescriptionField()
     alt_labels = WikidataAltLabelField()
     schema = None
     # Instance Attributes set dynamically:
