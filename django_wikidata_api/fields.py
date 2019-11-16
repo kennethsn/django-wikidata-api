@@ -284,13 +284,35 @@ class WikidataEntityListField(WikidataListField):
         return "?{self.name}_item rdfs:label ?{self.name}_itemLabel . ".format(self=self)
 
 
+class SchemaAboutField(WikidataField):
+    """ Field used to connect SPARQL to another external resource. """
+    serializer_field_class = serializers.URLField
+    default_serializer_settings = {'allow_null': True, 'allow_blank': True}
+
+    def __init__(self, url, **kwargs):
+        super(SchemaAboutField, self).__init__(**kwargs)
+        self.url = url
+
+    def to_wikidata_filter(self):
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+        Returns (str):
+        """
+        wd_filter = f"?{self.name} schema:about ?{self.entity_name}; schema:isPartOf <{self.url}>."
+        return wd_filter if self.required else "OPTIONAL {{ {} }}".format(wd_filter)
+
+    def to_wikidata_group(self):
+        """
+        Get the portion of a SPARQL query in the GROUP BY clause.
+        Returns (str):
+
+        """
+        return f"?{self.name}"
+
+
 class WikidataConformanceField(WikidataNoSPARQLMixin, WikidataField):
     serializer_field_class = WikidataConformanceSerializer
     default_serializer_settings = {}
-
-    # def __init__(self, **kwargs):
-    #     super(WikidataLabelField, self).__init__(**kwargs)
-    #     self.from_name = "{}{}".format(self.entity_name, self.suffix)
 
 
 class ModelPropertyField(object):

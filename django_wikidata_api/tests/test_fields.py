@@ -4,10 +4,12 @@ from rest_framework.fields import (
     CharField,
     Field,
     ReadOnlyField,
+    URLField,
 )
 from django.test import TestCase
 
 from django_wikidata_api.fields import (
+    SchemaAboutField,
     WikidataCharField,
     WikidataDescriptionField,
     WikidataField,
@@ -153,3 +155,27 @@ class WikidataDescriptionFieldTests(TestCase):
         self.assertTrue(self.test_field.serializer.allow_null)
         self.assertTrue(self.test_field.serializer.allow_blank)
         self.assertEqual(self.test_field.sparql_field_suffix, 'Description')
+
+
+class SchemaAboutFieldTests(TestCase):
+    def setUp(self):
+        """ Setup WikidataCharField tests. """
+        self.test_field = SchemaAboutField(url="example.com", entity_name="test", name="about")
+
+    def test___init__(self):
+        self.assertEqual(self.test_field.serializer_field_class, URLField)
+        self.assertEqual(self.test_field.url, "example.com")
+        self.assertTrue(self.test_field.serializer.allow_null)
+        self.assertTrue(self.test_field.serializer.allow_blank)
+        self.assertEqual(self.test_field.sparql_field_suffix, '')
+
+    def test_to_wikidata_filter(self):
+        self.assertEqual(self.test_field.to_wikidata_filter(),
+                         "OPTIONAL { ?about schema:about ?test; schema:isPartOf <example.com>. }")
+        self.test_field.required = True
+        self.assertEqual(self.test_field.to_wikidata_filter(),
+                         "?about schema:about ?test; schema:isPartOf <example.com>.")
+        self.test_field.required = False
+
+    def test_to_wikidata_group(self):
+        self.assertEqual(self.test_field.to_wikidata_group(), "?about")
