@@ -1,13 +1,13 @@
 # coding=utf-8
 """ Unit tests for models.py """
 from mock import patch
-from rest_framework.serializers import Serializer
 
 from django.test import TestCase
 from django.urls import URLResolver
 
 from django_wikidata_api.fields import WikidataField
 from django_wikidata_api.models import WikidataItemBase
+from django_wikidata_api.serializers import WikidataItemSerializer
 
 from .examples import CustomTestModel
 
@@ -137,10 +137,11 @@ class WikidataItemBaseTests(TestCase):
 
     def test_build_serializer(self):
         serializer_class = WikidataItemBase.build_serializer()
-        self.assertTrue(issubclass(serializer_class, Serializer))
+        self.assertTrue(issubclass(serializer_class, WikidataItemSerializer))
+        self.assertEqual("Wikidata Item", serializer_class.Meta.ref_name)
         self.test_item_full.set_conformance()
         serializer = serializer_class(self.test_item_full)
-        self.assertIsInstance(serializer, Serializer)
+        self.assertIsInstance(serializer, WikidataItemSerializer)
         serializer_data = serializer.data
         self.assertEqual(serializer_data['id'], '123')
         self.assertEqual(serializer_data['alt_labels'], ["Test"])
@@ -152,10 +153,11 @@ class WikidataItemBaseTests(TestCase):
 
     def test_build_serializer__custom_model(self):
         serializer_class = self.CustomTestModel.build_serializer()
-        self.assertTrue(issubclass(serializer_class, Serializer))
+        self.assertTrue(issubclass(serializer_class, WikidataItemSerializer))
+        self.assertEqual("Test Model", serializer_class.Meta.ref_name)
         self.custom_test_item_full.set_conformance()
         serializer = serializer_class(self.custom_test_item_full)
-        self.assertIsInstance(serializer, Serializer)
+        self.assertIsInstance(serializer, WikidataItemSerializer)
         serializer_data = serializer.data
         self.assertEqual(serializer_data['id'], '123')
         self.assertEqual(serializer_data['alt_labels'], ["Test"])

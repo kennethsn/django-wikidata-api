@@ -1,7 +1,6 @@
 # coding=utf-8
 """ Django-Style Wikidata Models. """
 import logging
-from rest_framework.serializers import Serializer
 from wikidataintegrator.wdi_core import WDItemEngine
 
 from .fields import (
@@ -12,6 +11,7 @@ from .fields import (
     WikidataField,
     WikidataLabelField
 )
+from .serializers import WikidataItemSerializer
 from .utils import (
     dict_has_substring,
     is_private_name,
@@ -121,7 +121,7 @@ class WikidataItemBase(object):
     def build_serializer(cls):
         """
         Build a serializer class to support this object.
-        Returns (Class[Serializer]):
+        Returns (Class[WikidataItemSerializer]):
 
         """
         attrs = {}
@@ -130,7 +130,9 @@ class WikidataItemBase(object):
             if key == 'main':
                 key = 'id'
             attrs[key] = field.serializer
-        return type('{}Serializer'.format(cls.__name__), (Serializer,), attrs)
+        serializer_class = type('{}Serializer'.format(cls.__name__), (WikidataItemSerializer,), attrs)
+        serializer_class.Meta.ref_name = cls.Meta.verbose_name
+        return serializer_class
 
     @classmethod
     def get_all(cls, with_conformance=False, limit=None):

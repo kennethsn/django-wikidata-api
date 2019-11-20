@@ -1,3 +1,5 @@
+# coding=utf-8
+""" Viewset helper functions. """
 from django.conf.urls import (
     include,
     url
@@ -58,24 +60,24 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
             _serializer = self.serializer_class(queryset, many=True)
             return Response(_serializer.data)
 
-        @swagger_auto_schema(operation_summary="Get {} By QID".format(name),
-                             operation_description="Retrieve a {} by querying Wikidata for the corresponding Item's "
-                                                   "Statements.".format(name),
-                             responses={200: serializer(), 404: "No File Format Found with ID: Format Id"},
+        @swagger_auto_schema(operation_summary=f"Get {name} By QID",
+                             operation_description=f"Retrieve a {name} by querying Wikidata for the corresponding"
+                                                   f" Item's Statements.",
+                             responses={200: serializer(), 404: f"No {name} Found with ID: <QID>"},
                              tags=[name_plural])
         def retrieve(self, request, wikidata_id=None):
             """
-            Return File Format metadata if the provided QID is found in Wikidata and the item's statements matches the
-            File Format schema.
+            Return metadata if the provided QID is found in Wikidata and the item's statements matches the
+            schema.
 
-            **Note:** *For more details on how we determine the File Format Schema, [see here][ref].*
+            **Note:** *For more details on how we determine the Schema, [see here][ref].*
 
             [ref]: http://example.com/activating-accounts
             """
             with_conformance = request.query_params.get('conformance', False)
             obj = self.model.get(wikidata_id, with_conformance=with_conformance)
             if not obj:
-                raise NotFound(detail="No File Format Found with ID: {}".format(wikidata_id))
+                raise NotFound(detail=f"No {name} Found with ID: {wikidata_id}")
             _serializer = self.serializer_class(obj)
             return Response(_serializer.data)
 
