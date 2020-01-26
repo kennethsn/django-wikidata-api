@@ -3,6 +3,7 @@
 from rest_framework.fields import (
     BooleanField,
     CharField,
+    IntegerField,
     RegexField,
 )
 from rest_framework.serializers import (
@@ -32,3 +33,24 @@ class WikidataConformanceSerializer(Serializer):
     def update(self, instance, validated_data):
         # TODO: Add a update method that would call a .update method of the model
         pass
+
+
+class WikidataItemQuerySerializer(Serializer):
+    """ Serializer for the Get a Wikidata Item Query Parameters """
+
+    class Meta(SerializerMetaclass):
+        """ Meta class for Story API Serializer. """
+        ref_name = "Wikidata Item Request"
+
+    conformance = BooleanField(default=False)
+
+
+class WikidataItemListQuerySerializer(WikidataItemQuerySerializer):
+    """ Serializer for the Get Wikidata Items Query Parameters """
+
+    class Meta(WikidataItemQuerySerializer.Meta):
+        """ Meta class for Story API Serializer. """
+
+        ref_name = "Wikidata Item List Request"
+
+    page = IntegerField(default=1)

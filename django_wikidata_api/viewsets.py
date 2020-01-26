@@ -14,8 +14,14 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
+from .serializers import (
+    WikidataItemListQuerySerializer,
+    WikidataItemQuerySerializer,
+)
 
-def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permission_classes=None):
+
+def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permission_classes=None, page_size=100,
+                                   list_serializer=None, serializer=None):
     """
     Generate a Viewset class from a WikidataItem model.
 
@@ -23,14 +29,16 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
         wikidata_model (WikidataItemBase):
         slug (Optional[str]): the url slug to be used for the api route patterns
         permission_classes (Optional[List[BasePermission]]): any permission classes to set to access this viewset
+        page_size (Optional[int]): Number of records per API request
 
     Returns (WikidataItemViewSet):
 
     """
     name = wikidata_model.get_model_name()
     name_plural = wikidata_model.get_model_name_plural()
-    serializer = wikidata_model.build_serializer()
+    serializer = serializer or wikidata_model.build_serializer()
     _permission_classes = permission_classes or []
+    _page_size = page_size
 
     class WikidataItemViewSet(viewsets.ViewSet):
         """
@@ -40,29 +48,36 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
         model = wikidata_model
         lookup_field = 'wikidata_id'
         permission_classes = _permission_classes
+        page_size = _page_size
+        list_serializer_class = list_serializer or serializer
 
-        @swagger_auto_schema(operation_summary="List All {}".format(name_plural),
-                             operation_description="Get all {} from querying Wikidata using the Wikidata "
-                                                   "SPARQL endpoint.".format(name_plural),
+        @swagger_auto_schema(operation_summary=f"List All {name_plural}",
+                             operation_description=f"Get all {name_plural} from querying Wikidata using the Wikidata "
+                                                   "SPARQL endpoint.",
+                             query_serializer=WikidataItemListQuerySerializer,
                              responses={200: serializer(many=True)},
                              tags=[name_plural])
         def list(self, request):
             """
             Get all objects.
-            Args:
-                request:
 
-            Returns:
+            Args:
+                request (request):
+
+            Returns (HttpResponse):
 
             """
-            with_conformance = request.query_params.get('conformance', False)
-            queryset = self.model.get_all(with_conformance=with_conformance)
-            _serializer = self.serializer_class(queryset, many=True)
+            query_serializer = WikidataItemListQuerySerializer(request.query_params)
+            with_conformance = query_serializer.data.get('conformance', False)
+            page = query_serializer.data.get("page", 1)
+            queryset = self.model.get_all(page=page, limit=self.page_size, with_conformance=with_conformance)
+            _serializer = self.list_serializer_class(queryset, many=True)
             return Response(_serializer.data)
 
         @swagger_auto_schema(operation_summary=f"Get {name} By QID",
                              operation_description=f"Retrieve a {name} by querying Wikidata for the corresponding"
                                                    f" Item's Statements.",
+                             query_serializer=WikidataItemQuerySerializer,
                              responses={200: serializer(), 404: f"No {name} Found with ID: <QID>"},
                              tags=[name_plural])
         def retrieve(self, request, wikidata_id=None):

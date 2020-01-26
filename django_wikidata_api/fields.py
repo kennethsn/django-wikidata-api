@@ -68,13 +68,17 @@ class WikidataField(object):
     def _prop_sparql_string(self):
         return "wdt:{}".format('|wdt:'.join(self.properties))
 
-    def to_wikidata_field(self):
+    def to_wikidata_field(self, minimal=False):
         """
         Get the portion of a SPARQL query that specifies the field name.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
         Returns (str):
 
         """
-        return "?{self.name}".format(self=self)
+        return "" if minimal else f"?{self.name}"
 
     def to_wikidata_filter(self):
         """
@@ -131,7 +135,19 @@ class WikidataListResponseMixin(object):
 
 
 class WikidataNoSPARQLMixin(object):
-    def to_wikidata_field(self):
+    """ Wikidata Field that does not impact the underlying SPARQL Queries. """
+
+    @staticmethod
+    def to_wikidata_field(minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (Literal[""]):
+
+        """
         return ""
 
     def to_wikidata_filter(self):
@@ -158,9 +174,13 @@ class WikidataLabelField(WikidataCharField):
     def __init__(self, **kwargs):
         super(WikidataLabelField, self).__init__(**kwargs)
 
-    def to_wikidata_field(self):
+    def to_wikidata_field(self, minimal=False):
         """
         Get the portion of a SPARQL query that specifies the field name.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
         Returns (str):
 
         """
@@ -217,6 +237,22 @@ class WikidataEntityField(WikidataField):
         return field.replace('http://www.wikidata.org/entity/', '')
 
 
+class WikidataMainEntityField(WikidataEntityField):
+    """ Field to use as the Main Entity. """
+
+    def to_wikidata_field(self, minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (str):
+
+        """
+        return f"?{self.name}"
+
+
 class WikidataEntityFilterField(WikidataField):
     def to_wikidata_filter(self):
         prop_string = self._prop_sparql_string()
@@ -233,15 +269,26 @@ class WikidataEntityFilterField(WikidataField):
 
 
 class WikidataListField(WikidataListResponseMixin, WikidataField):
+    """ Wikidata Field for List Items """
+
     def __init__(self, properties=None, empty=True, separator='|', **kwargs):
         self.separator = separator
         if empty:
             kwargs['default'] = []
         super(WikidataListField, self).__init__(properties, **kwargs)
 
-    def to_wikidata_field(self):
-        return "(GROUP_CONCAT(DISTINCT ?{self.name}_item; SEPARATOR='{self.separator}') AS ?{self.name})".format(
-            self=self)
+    def to_wikidata_field(self, minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (str):
+
+        """
+        return "" if minimal else f"(GROUP_CONCAT(DISTINCT ?{self.name}_item; SEPARATOR='{self.separator}') " \
+                                  f"AS ?{self.name})"
 
     def to_wikidata_filter(self):
         prop_string = self._prop_sparql_string()
@@ -251,18 +298,28 @@ class WikidataListField(WikidataListResponseMixin, WikidataField):
     def to_wikidata_group(self):
         """
         Get the portion of a SPARQL query in the GROUP BY clause.
-        Returns (""):
+        Returns (Literal[""]):
 
         """
         return ""
 
 
 class WikidataAltLabelField(WikidataListField):
+    """ Field to get the Alternative Labels of an Item. """
     suffix = '_alt_label'
 
-    def to_wikidata_field(self):
-        return "(GROUP_CONCAT(DISTINCT ?{self.entity_name}_alt_label; SEPARATOR='{self.separator}') AS " \
-               "?{self.name})".format(self=self)
+    def to_wikidata_field(self, minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (str):
+
+        """
+        return "" if minimal else f"(GROUP_CONCAT(DISTINCT ?{self.entity_name}_alt_label; " \
+                                  f"SEPARATOR='{self.separator}') AS ?{self.name})"
 
     def to_wikidata_filter(self):
         # TODO: add language support in here
@@ -272,13 +329,24 @@ class WikidataAltLabelField(WikidataListField):
 
 
 class WikidataEntityListField(WikidataListField):
+    """ Field to get values as Wikidata Items. """
+
     def __init__(self, properties=None, **kwargs):
         assert properties, "There must be a list/tuple of properties"
         super(WikidataEntityListField, self).__init__(properties, **kwargs)
 
-    def to_wikidata_field(self):
-        return "(GROUP_CONCAT(DISTINCT ?{self.name}_itemLabel; SEPARATOR='{self.separator}') AS ?{self.name})".format(
-            self=self)
+    def to_wikidata_field(self, minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (str):
+
+        """
+        return "" if minimal else f"(GROUP_CONCAT(DISTINCT ?{self.name}_itemLabel; " \
+                                  f"SEPARATOR='{self.separator}') AS ?{self.name})"
 
     def to_wikidata_service(self):
         return "?{self.name}_item rdfs:label ?{self.name}_itemLabel . ".format(self=self)
