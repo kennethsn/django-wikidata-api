@@ -16,12 +16,13 @@ from rest_framework.response import Response
 
 from .serializers import (
     WikidataItemListQuerySerializer,
+    WikidataItemMinimalSerializer,
     WikidataItemQuerySerializer,
 )
 
 
 def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permission_classes=None, page_size=100,
-                                   list_serializer=None, serializer=None):
+                                   list_serializer=WikidataItemMinimalSerializer, serializer=None):
     """
     Generate a Viewset class from a WikidataItem model.
 
@@ -30,6 +31,8 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
         slug (Optional[str]): the url slug to be used for the api route patterns
         permission_classes (Optional[List[BasePermission]]): any permission classes to set to access this viewset
         page_size (Optional[int]): Number of records per API request
+        list_serializer (Optional[Serializer]):
+        serializer (Optional[Serializer]):
 
     Returns (WikidataItemViewSet):
 
@@ -55,8 +58,8 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
                              operation_description=f"Get all {name_plural} from querying Wikidata using the Wikidata "
                                                    "SPARQL endpoint.",
                              query_serializer=WikidataItemListQuerySerializer,
-                             responses={200: serializer(many=True)},
-                             tags=[name_plural])
+                             responses={200: list_serializer_class(many=True)},
+                             tags=[name])
         def list(self, request):
             """
             Get all objects.
@@ -79,7 +82,7 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
                                                    f" Item's Statements.",
                              query_serializer=WikidataItemQuerySerializer,
                              responses={200: serializer(), 404: f"No {name} Found with ID: <QID>"},
-                             tags=[name_plural])
+                             tags=[name])
         def retrieve(self, request, wikidata_id=None):
             """
             Return metadata if the provided QID is found in Wikidata and the item's statements matches the
@@ -104,7 +107,7 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
                                                    description='Search For {}'.format(name_plural)),
                              ],
                              responses={200: serializer(many=True), 404: "No Search Results Found for 'query'"},
-                             tags=[name_plural])
+                             tags=[name])
         @action(detail=False, methods=['POST'])
         def search(self, request):
             """

@@ -150,7 +150,7 @@ class WikidataItemBase(object):
         return list(cls._get_all(**kwargs))
 
     @classmethod
-    def _get_all(cls, with_conformance=False, limit=None, minimal=False, page_size=100, page=1):
+    def _get_all(cls, with_conformance=False, limit=None, minimal=True, page_size=100, page=1):
         """
         Query Wikidata to get all instances of this model.
 
@@ -161,19 +161,25 @@ class WikidataItemBase(object):
             limit (Optional[Int]): The maximum records to query Wikidata for
             minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
             page_size (Optional[Int]): Number of records per API Request
-            page (Optional[Int]): Starting Page position
+            page (Optional[Int]): Page position, If None, get all pages
 
         Returns (Generator[WikidataItemBase]): Generator of this model's instances
 
         """
         finished = False
+        single_page = isinstance(page, int)  # To make multi-page, use 'None'
+        page = page or 1
+        remaining_limit = limit
         while not finished:
             offset = (page - 1) * page_size
-            query_limit = min(limit - offset, page_size) if limit else page_size
+            query_limit = min(remaining_limit, page_size) if limit else page_size
             wikidata_response = cls._query_wikidata(limit=query_limit, minimal=minimal, offset=offset)
             for item in wikidata_response:
                 yield cls._from_wikidata(item, with_conformance=with_conformance)
-            finished = len(wikidata_response) < page_size
+            api_count = len(wikidata_response)
+            finished = single_page or api_count < page_size
+            if remaining_limit:
+                remaining_limit -= api_count
             page += 1
 
     @classmethod
@@ -206,7 +212,7 @@ class WikidataItemBase(object):
         Returns (List[WikidataItemBase]):
 
         """
-        return [obj for obj in cls.get_all() if obj._has_substring(search_string)]
+        return [obj for obj in cls.get_all(page=None, minimal=False) if obj._has_substring(search_string)]
 
     @classmethod
     def count(cls):

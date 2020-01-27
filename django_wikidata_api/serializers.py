@@ -54,3 +54,14 @@ class WikidataItemListQuerySerializer(WikidataItemQuerySerializer):
         ref_name = "Wikidata Item List Request"
 
     page = IntegerField(default=1)
+
+
+class WikidataItemMinimalSerializer(WikidataItemSerializer):
+
+    class Meta(WikidataItemSerializer.Meta):
+        ref_name = "Wikidata Item Summary"
+
+    id = RegexField(regex="(Q|q)\d+", allow_blank=False, min_length=2, max_length=20,
+                    help_text="Wikidata Item Identifier (ex. Q59961716)")
+    label = CharField()
+    description = CharField()
