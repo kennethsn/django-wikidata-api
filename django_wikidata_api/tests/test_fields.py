@@ -12,6 +12,7 @@ from django_wikidata_api.fields import (
     SchemaAboutField,
     WikidataCharField,
     WikidataDescriptionField,
+    WikidataEntityFilterField,
     WikidataField,
     WikidataLabelField,
 )
@@ -155,6 +156,22 @@ class WikidataDescriptionFieldTests(TestCase):
         self.assertTrue(self.test_field.serializer.allow_null)
         self.assertTrue(self.test_field.serializer.allow_blank)
         self.assertEqual(self.test_field.sparql_field_suffix, 'Description')
+
+
+class WikidataEntityFilterFieldTests(TestCase):
+    def setUp(self):
+        """ Setup WikidataEntityFilterField tests. """
+        self.test_field = WikidataEntityFilterField(name="test", properties=["P123", "P321"], values=[])
+
+    def test_to_wikidata_filter(self):
+        self.assertEqual(self.test_field.to_wikidata_filter(),
+                         "OPTIONAL { ?main wdt:P123|wdt:P321 ?test_qid. FILTER(?test_qid=wd:). }")
+
+    def test_to_wikidata_service(self):
+        self.assertEqual(self.test_field.to_wikidata_service(), "?test_qid rdfs:label ?test . ")
+
+    def test_to_wikidata_group(self):
+        self.assertEqual(self.test_field.to_wikidata_group(), "?test")
 
 
 class SchemaAboutFieldTests(TestCase):

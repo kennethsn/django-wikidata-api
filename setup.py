@@ -19,7 +19,7 @@ setup(
     license='AGPL-3.0',
     install_requires=[
         'Django>=2.2,<2.3',
-        'djangorestframework>=3.10.3',
+        'djangorestframework>=3.11.0',
         'drf-yasg>=1.17',
         'mock',
         'wikidataintegrator>=0.4.2, <0.4.3',
