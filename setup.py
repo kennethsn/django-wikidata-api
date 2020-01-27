@@ -8,7 +8,7 @@ README = open(os.path.join(here, 'README.md')).read()
 
 setup(
     name='django-wikidata-api',
-    version='0.0.6',
+    version='0.0.7',
     packages=['django_wikidata_api'],
     description='Python Package for interfacing with Wikidata within a Django App',
     long_description=README,
@@ -18,11 +18,11 @@ setup(
     url='https://github.com/kennethsn/django-wikidata-api',
     license='AGPL-3.0',
     install_requires=[
-        'Django>=2.2,<2.3',
+        'Django>=2.2,<3.0.3',
         'djangorestframework>=3.11.0',
         'drf-yasg>=1.17',
         'mock',
-        'wikidataintegrator>=0.4.2, <0.4.3',
+        'wikidataintegrator>=0.4.2, <=0.5.0',
         # Wikidataintegrator packages that aren't tied down
         'pandas>=0.25.2',
         'tqdm>=4.36.1',
@@ -36,6 +36,7 @@ setup(
         "Programming Language :: Python :: 3.8",
         "Framework :: Django",
         "Framework :: Django :: 2.2",
+        "Framework :: Django :: 3.0",
         "License :: OSI Approved :: GNU Affero General Public License v3"
     ],
     python_requires='>=3.6',
