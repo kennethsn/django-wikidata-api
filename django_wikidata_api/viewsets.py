@@ -126,7 +126,7 @@ def generate_wikidata_item_viewset(wikidata_model, slug='wikidata_item', permiss
         def get_viewset_urls(cls):
             # TODO: Possibly add slugify function to pull from class name/model name
             router = routers.DefaultRouter()
-            router.register(r'{}'.format(slug), cls, base_name=slug)
+            router.register(r'{}'.format(slug), cls, basename=slug)
             return url(r'^'.format(slug), include(router.urls), name=slug)
 
     return WikidataItemViewSet

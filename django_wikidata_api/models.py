@@ -209,7 +209,20 @@ class WikidataItemBase(object):
         return [obj for obj in cls.get_all() if obj._has_substring(search_string)]
 
     @classmethod
-    def build_query(cls, values=None, limit=None, minimal=False, offset=None):
+    def count(cls):
+        """
+        Get the total number of instances.
+
+        Returns (Int):
+
+        """
+        wikidata_response = cls._query_wikidata(count=True)
+        if wikidata_response:
+            return int(wikidata_response[0].get('count', {}).get('value') or 0)
+        return 0
+
+    @classmethod
+    def build_query(cls, values=None, limit=None, minimal=False, offset=None, count=False):
         """
         Build a SPARQL query to fetch data that instantiates instances of models from the Wikidata Query Service.
         Args:
@@ -217,15 +230,17 @@ class WikidataItemBase(object):
             limit (Optional[int]): used to set a maximum return value in the query
             minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
             offset (Optional[int]): used to position the maximum return value's starting bound
+            count (Optional[Bool]): True if only need the count total, False otherwise
 
         Returns (str): minified SPARQL Query string
 
         """
-        # TODO: Add Offset
+        if count:
+            minimal = True
         fields = cls().get_wikidata_fields()
         to_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
-        to_filters = ' '.join(f.to_wikidata_filter() for f in fields)
-        to_services = ' '.join(f.to_wikidata_service() for f in fields)
+        to_filters = ' '.join(f.to_wikidata_filter() for f in fields if f.required or not minimal)
+        to_services = "" if minimal else ' '.join(f.to_wikidata_service() for f in fields)
         to_group = "" if minimal else f"GROUP BY {' '.join(f.to_wikidata_group() for f in fields)}"
         value_filter = "VALUES (?main) {{ (wd:{vals}) }}".format(vals=") (wd:".join(val for val in values)) \
             if values else ''
@@ -244,6 +259,8 @@ class WikidataItemBase(object):
             {limit_by}
             {offset_by}
         """
+        if count:
+            query = f"SELECT (COUNT(?main) AS ?count) WHERE {{ {query} }}"
         return " ".join(query.split())
 
     @classmethod
@@ -263,7 +280,7 @@ class WikidataItemBase(object):
         return viewset.get_viewset_urls()
 
     @classmethod
-    def _query_wikidata(cls, values=None, limit=None, minimal=False, offset=None):
+    def _query_wikidata(cls, values=None, limit=None, minimal=False, offset=None, count=False):
         """
         Query Wikidata for data related to this model.
         Args:
@@ -271,22 +288,22 @@ class WikidataItemBase(object):
             limit (Optional[int]): used to set a maximum return value in the query
             minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
             offset (Optional[int]): used to position the maximum return value's starting bound
+            count (Optional[Bool]): True if only need the count total, False otherwise
 
         Returns (List[Dict]]): The results->bindings of the Wikidata Query Service response
 
         """
         # TODO: Add some custom error handling
-        results_json = WDItemEngine.execute_sparql_query(cls.build_query(values, limit, minimal, offset))
+        results_json = WDItemEngine.execute_sparql_query(cls.build_query(values, limit, minimal, offset, count))
         return results_json['results']['bindings']
 
     @classmethod
-    def _from_wikidata(cls, wikidata_response, with_conformance=False, minimal=True):
+    def _from_wikidata(cls, wikidata_response, with_conformance=False):
         """
         Parse Wikidata Query Service response to instantiate a model object.
         Args:
             wikidata_response (Dict[str, Dict[str, str]]):
             with_conformance (Optional[Bool]): True if intending to use SheX validation, False otherwise
-            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
 
         Returns (WikidataItemBase):
 
