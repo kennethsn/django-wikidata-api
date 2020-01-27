@@ -6,7 +6,10 @@ from django.test import TestCase
 from django.urls import URLResolver
 
 from django_wikidata_api.fields import WikidataField
-from django_wikidata_api.models import WikidataItemBase
+from django_wikidata_api.models import (
+    WDTriple,
+    WikidataItemBase,
+)
 from django_wikidata_api.serializers import WikidataItemSerializer
 
 from .examples import CustomTestModel
@@ -278,6 +281,13 @@ class WikidataItemBaseTests(TestCase):
         # search by alt_labels
         self.assertEqual(len(WikidataItemBase.search('alt name 2')), 1)
 
+    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
+    def test_count(self, mocked_execute_query):
+        mocked_execute_query.return_value = {'results': {'bindings': [{'count': {'value': 100}}]}}
+        self.assertEqual(WikidataItemBase.count(), 100)
+        mocked_execute_query.return_value = {'results': {'bindings': []}}
+        self.assertEqual(WikidataItemBase.count(), 0)
+
     def test_build_query(self):
         output = WikidataItemBase.build_query()
         # test minified
@@ -355,6 +365,10 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(output.conformance['reason'], 'No Schema associated with this model')
         self.assertTrue(output.conformance['result'])
 
+    def test__attr_is_public(self):
+        self.assertTrue(self.test_item._attr_is_public('schema'))
+        self.assertFalse(self.test_item._attr_is_public('_wikidata_fields'))
+
     def test__has_substring(self):
         self.assertFalse(self.test_item._has_substring("something"))
         self.assertFalse(self.test_item._has_substring("Test"))
@@ -384,3 +398,18 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(str(self.test_item_full), "Test Item (Q123)")
         self.assertEqual(str(self.custom_test_item), "None (None)")
         self.assertEqual(str(self.custom_test_item_full), "Test Item (Q123)")
+
+
+class WDTripleTests(TestCase):
+
+    def setUp(self):
+        """ Setup WDTriple tests. """
+        self.test_triple = WDTriple('P1', [])
+
+    def test___init__(self):
+        self.assertEqual(self.test_triple.prop, "P1")
+        self.assertEqual(self.test_triple.values, [])
+        self.assertEqual(self.test_triple._query, "")
+
+    def test_format(self):
+        self.assertEqual(self.test_triple.format("test"), "")

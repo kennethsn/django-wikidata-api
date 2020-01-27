@@ -7,9 +7,9 @@ from .fields import (
     WikidataAltLabelField,
     WikidataConformanceField,
     WikidataDescriptionField,
-    WikidataEntityField,
     WikidataField,
-    WikidataLabelField
+    WikidataLabelField,
+    WikidataMainEntityField,
 )
 from .serializers import WikidataItemSerializer
 from .utils import (
@@ -33,7 +33,7 @@ class WikidataItemBase(object):
         verbose_name_plural = None
         property_fields = None  # TODO: Make a property_field decorator
 
-    main = WikidataEntityField(triples=[], required=True)
+    main = WikidataMainEntityField(triples=[], required=True)
     label = WikidataLabelField(required=True)
     description = WikidataDescriptionField()
     alt_labels = WikidataAltLabelField()
@@ -135,20 +135,46 @@ class WikidataItemBase(object):
         return serializer_class
 
     @classmethod
-    def get_all(cls, with_conformance=False, limit=None):
+    def get_all(cls, **kwargs):
         """
         Query Wikidata to get all instances of this model.
+
         Notes:
-            TODO: Consider structuring as a generator return like Django does, and use the .objects.all() style
+            TODO: Consider use the .objects.all() style
         Args:
-            with_conformance (Optional[Bool]): True if intending to use SheX validation, False otherwise
-            limit (Optional[Int]): The maximum records to query Wikidata for
+            kwargs (Dict): Keyword args to pass through to the ._get_all method
 
         Returns (List[WikidataItemBase]): Returns a list of this model's instances
 
         """
-        wikidata_response = cls._query_wikidata(limit=limit)
-        return [cls._from_wikidata(x, with_conformance) for x in wikidata_response]
+        return list(cls._get_all(**kwargs))
+
+    @classmethod
+    def _get_all(cls, with_conformance=False, limit=None, minimal=False, page_size=100, page=1):
+        """
+        Query Wikidata to get all instances of this model.
+
+        Notes:
+            TODO: Consider use the .objects.all() style
+        Args:
+            with_conformance (Optional[Bool]): True if intending to use SheX validation, False otherwise
+            limit (Optional[Int]): The maximum records to query Wikidata for
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+            page_size (Optional[Int]): Number of records per API Request
+            page (Optional[Int]): Starting Page position
+
+        Returns (Generator[WikidataItemBase]): Generator of this model's instances
+
+        """
+        finished = False
+        while not finished:
+            offset = (page - 1) * page_size
+            query_limit = min(limit - offset, page_size) if limit else page_size
+            wikidata_response = cls._query_wikidata(limit=query_limit, minimal=minimal, offset=offset)
+            for item in wikidata_response:
+                yield cls._from_wikidata(item, with_conformance=with_conformance)
+            finished = len(wikidata_response) < page_size
+            page += 1
 
     @classmethod
     def get(cls, entity_id, with_conformance=False):
@@ -183,43 +209,64 @@ class WikidataItemBase(object):
         return [obj for obj in cls.get_all() if obj._has_substring(search_string)]
 
     @classmethod
-    def build_query(cls, values=None, limit=None):
+    def count(cls):
+        """
+        Get the total number of instances.
+
+        Returns (Int):
+
+        """
+        wikidata_response = cls._query_wikidata(count=True)
+        if wikidata_response:
+            return int(wikidata_response[0].get('count', {}).get('value') or 0)
+        return 0
+
+    @classmethod
+    def build_query(cls, values=None, limit=None, minimal=False, offset=None, count=False):
         """
         Build a SPARQL query to fetch data that instantiates instances of models from the Wikidata Query Service.
         Args:
             values (Optional[Iterable[str]]): list-like structure containing Wikidata Entity ID's, ex. ['Q123', 'Q321']
             limit (Optional[int]): used to set a maximum return value in the query
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+            offset (Optional[int]): used to position the maximum return value's starting bound
+            count (Optional[Bool]): True if only need the count total, False otherwise
 
         Returns (str): minified SPARQL Query string
 
         """
-        # TODO: Add Offset
+        if count:
+            minimal = True
         fields = cls().get_wikidata_fields()
-        to_fields = ' '.join(f.to_wikidata_field() for f in fields)
-        to_filters = ' '.join(f.to_wikidata_filter() for f in fields)
-        to_services = ' '.join(f.to_wikidata_service() for f in fields)
-        to_group = ' '.join(f.to_wikidata_group() for f in fields)
+        to_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
+        to_filters = ' '.join(f.to_wikidata_filter() for f in fields if f.required or not minimal)
+        to_services = "" if minimal else ' '.join(f.to_wikidata_service() for f in fields)
+        to_group = "" if minimal else f"GROUP BY {' '.join(f.to_wikidata_group() for f in fields)}"
         value_filter = "VALUES (?main) {{ (wd:{vals}) }}".format(vals=") (wd:".join(val for val in values)) \
             if values else ''
         limit_by = f"LIMIT {limit}" if limit else ""
+        offset_by = f"OFFSET {offset}" if offset else ""
 
         query = f"""
-                SELECT DISTINCT {to_fields}
-                WHERE {{
-                    {value_filter}
-                    {to_filters}
-                    SERVICE wikibase:label {{ bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". {to_services} }}
-                }}
-                GROUP BY {to_group}
-                {limit_by}
-
-            """
+            SELECT DISTINCT {to_fields}
+            WHERE {{
+                {value_filter}
+                {to_filters}
+                SERVICE wikibase:label {{ bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". {to_services} }}
+            }}
+            {to_group}
+            ORDER BY ?main
+            {limit_by}
+            {offset_by}
+        """
+        if count:
+            query = f"SELECT (COUNT(?main) AS ?count) WHERE {{ {query} }}"
         return " ".join(query.split())
 
     @classmethod
     def get_viewset_urls(cls, slug='wikidata_item'):
         """
-        Get viewset router urls to append to the django URLconf.
+        Get viewset router urls to append to the django URLConf.
         Notes:
             For reference on url return types, check out the django docs:
             https://docs.djangoproject.com/en/2.2/ref/urls/
@@ -233,18 +280,21 @@ class WikidataItemBase(object):
         return viewset.get_viewset_urls()
 
     @classmethod
-    def _query_wikidata(cls, values=None, limit=None):
+    def _query_wikidata(cls, values=None, limit=None, minimal=False, offset=None, count=False):
         """
         Query Wikidata for data related to this model.
         Args:
             values (Optional[Iterable[str]]): list-like structure containing Wikidata Entity ID's, ex. ['Q123', 'Q321']
             limit (Optional[int]): used to set a maximum return value in the query
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+            offset (Optional[int]): used to position the maximum return value's starting bound
+            count (Optional[Bool]): True if only need the count total, False otherwise
 
         Returns (List[Dict]]): The results->bindings of the Wikidata Query Service response
 
         """
         # TODO: Add some custom error handling
-        results_json = WDItemEngine.execute_sparql_query(cls.build_query(values, limit))
+        results_json = WDItemEngine.execute_sparql_query(cls.build_query(values, limit, minimal, offset, count))
         return results_json['results']['bindings']
 
     @classmethod
