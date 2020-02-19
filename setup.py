@@ -8,7 +8,7 @@ README = open(os.path.join(here, 'README.md')).read()
 
 setup(
     name='django-wikidata-api',
-    version='0.0.7',
+    version='0.0.8',
     packages=['django_wikidata_api'],
     description='Python Package for interfacing with Wikidata within a Django App',
     long_description=README,
@@ -28,7 +28,7 @@ setup(
         'tqdm>=4.36.1',
     ],
     classifiers=[
-        "Development Status :: 1 - Planning",
+        "Development Status :: 2 - Pre-Alpha",
         "Natural Language :: English",
         "Operating System :: MacOS :: MacOS X",
         "Programming Language :: Python :: 3.6",
