@@ -22,13 +22,14 @@ class WikidataField(object):
     sparql_field_suffix = ""
 
     def __init__(self, properties=None, values=None, default=None, required=False, entity_name='main',
-                 serializer_settings=None, public=None, **kwargs):
+                 serializer_settings=None, public=None, show_in_minimal=False, **kwargs):
         self.entity_name = entity_name
         self.properties = properties
         self.values = values
         self.default = default
         self.required = required
         self.public = public  # used to override private _attrs
+        self.show_in_minimal = show_in_minimal  # used to determine if a field should show up in the list view
         self.from_name = "?{}{}".format(self.entity_name, self.sparql_field_suffix)
         set_kwargs(self, kwargs)
         self.set_serializer(serializer_settings or {})
@@ -78,7 +79,7 @@ class WikidataField(object):
         Returns (str):
 
         """
-        return "" if minimal else f"?{self.name}"
+        return "" if self.use_minimal(minimal) else f"?{self.name}"
 
     def to_wikidata_filter(self):
         """
@@ -120,6 +121,18 @@ class WikidataField(object):
 
         """
         return get_wikidata_field(wikidata_response, self.name, self.default)
+
+    def use_minimal(self, minimal):
+        """
+        Check if this field should return a minimal version or full version for query building.
+
+        Args:
+            minimal (Bool):
+
+        Returns (Bool):
+
+        """
+        return minimal and not self.show_in_minimal
 
 
 class WikidataListResponseMixin(object):
@@ -218,11 +231,12 @@ class WikidataDescriptionField(WikidataLabelField):
 class WikidataEntityField(WikidataField):
     # TODO: Add Item and Property SubClasses
     serializer_field_class = serializers.RegexField
-    default_serializer_settings = {'allow_blank': False, 'regex': "(Q|q)\d+", 'min_length': 2, 'max_length': 20,
+    default_serializer_settings = {'allow_blank': False, 'regex': r"(Q|q)\d+", 'min_length': 2, 'max_length': 20,
                                    'help_text': "Wikidata Item Identifier (ex. Q59961716)"}
     wikidata_filter = None
 
     def __init__(self, triples, **kwargs):
+        self.triples = triples
         super(WikidataEntityField, self).__init__(**kwargs)
         self.wikidata_filter = " ".join(triple.format(self.entity_name) for triple in triples)
 
@@ -287,8 +301,8 @@ class WikidataListField(WikidataListResponseMixin, WikidataField):
         Returns (str):
 
         """
-        return "" if minimal else f"(GROUP_CONCAT(DISTINCT ?{self.name}_item; SEPARATOR='{self.separator}') " \
-                                  f"AS ?{self.name})"
+        return "" if self.use_minimal(minimal) else f"(GROUP_CONCAT(DISTINCT ?{self.name}_item; " \
+                                                     f"SEPARATOR='{self.separator}') AS ?{self.name})"
 
     def to_wikidata_filter(self):
         prop_string = self._prop_sparql_string()
@@ -318,8 +332,8 @@ class WikidataAltLabelField(WikidataListField):
         Returns (str):
 
         """
-        return "" if minimal else f"(GROUP_CONCAT(DISTINCT ?{self.entity_name}_alt_label; " \
-                                  f"SEPARATOR='{self.separator}') AS ?{self.name})"
+        return "" if self.use_minimal(minimal) else f"(GROUP_CONCAT(DISTINCT ?{self.entity_name}_alt_label; " \
+                                                     f"SEPARATOR='{self.separator}') AS ?{self.name})"
 
     def to_wikidata_filter(self):
         # TODO: add language support in here
@@ -345,8 +359,8 @@ class WikidataEntityListField(WikidataListField):
         Returns (str):
 
         """
-        return "" if minimal else f"(GROUP_CONCAT(DISTINCT ?{self.name}_itemLabel; " \
-                                  f"SEPARATOR='{self.separator}') AS ?{self.name})"
+        return "" if self.use_minimal(minimal) else f"(GROUP_CONCAT(DISTINCT ?{self.name}_itemLabel; " \
+                                                     f"SEPARATOR='{self.separator}') AS ?{self.name})"
 
     def to_wikidata_service(self):
         return "?{self.name}_item rdfs:label ?{self.name}_itemLabel . ".format(self=self)
