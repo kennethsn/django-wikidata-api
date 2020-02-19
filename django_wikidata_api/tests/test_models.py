@@ -262,12 +262,16 @@ class WikidataItemBaseTests(TestCase):
         self.assertTrue(output.conformance['result'])
         self.assertEqual(output.alt_labels, [])
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_search(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.WikidataItemBase.get_all')
+    def test_search(self, mocked_get_all):
+        mocked_get_all.return_value = []
         self.assertEqual(WikidataItemBase.search("something"), [])
 
-        mocked_execute_query.return_value = self.mocked_query_response
+        mocked_get_all.return_value = [
+            WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][0]),
+            WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][1]),
+        ]
+
         self.assertEqual(WikidataItemBase.search("something"), [])
         # search by label
         self.assertEqual(len(WikidataItemBase.search("item")), 2)

@@ -184,8 +184,10 @@ class WikidataItemBase(object):
             _logger.debug("... found %s item(s)", api_count)
             if remaining_limit:
                 remaining_limit -= api_count
-            finished = single_page or (unknown_depth and not api_count) or (remaining_limit <= 0) or \
-                       (value_total and offset >= value_total)
+            finished = single_page \
+                or (unknown_depth and not api_count) \
+                or (isinstance(remaining_limit, int) and remaining_limit <= 0) \
+                or (value_total and offset >= value_total)
             page += 1
 
     @classmethod
