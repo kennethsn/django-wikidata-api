@@ -5,6 +5,7 @@ from mock import patch
 from django.test import TestCase
 from django.urls import URLResolver
 
+from django_wikidata_api.exceptions import DjangoWikidataAPIException
 from django_wikidata_api.fields import WikidataField
 from django_wikidata_api.models import (
     WDTriple,
@@ -186,7 +187,7 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(WikidataItemBase.get_all(), [])
 
         mocked_execute_query.return_value = self.mocked_query_response
-        output_list = WikidataItemBase.get_all()
+        output_list = WikidataItemBase.get_all(limit=100)
         self.assertEqual(len(output_list), 2)
         self.assertIsInstance(output_list[0], WikidataItemBase)
         self.assertEqual(output_list[0].id, 'Q123')
@@ -262,12 +263,16 @@ class WikidataItemBaseTests(TestCase):
         self.assertTrue(output.conformance['result'])
         self.assertEqual(output.alt_labels, [])
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_search(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.WikidataItemBase.get_all')
+    def test_search(self, mocked_get_all):
+        mocked_get_all.return_value = []
         self.assertEqual(WikidataItemBase.search("something"), [])
 
-        mocked_execute_query.return_value = self.mocked_query_response
+        mocked_get_all.return_value = [
+            WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][0]),
+            WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][1]),
+        ]
+
         self.assertEqual(WikidataItemBase.search("something"), [])
         # search by label
         self.assertEqual(len(WikidataItemBase.search("item")), 2)
@@ -344,6 +349,13 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(WikidataItemBase._query_wikidata(("Q123", "Q321")), expected_out)
         self.assertEqual(WikidataItemBase._query_wikidata(limit=20), expected_out)
         self.assertEqual(WikidataItemBase._query_wikidata(("Q123", "Q321"), 20), expected_out)
+
+        mocked_execute_query.side_effect = SystemExit('test')
+        with self.assertRaises(DjangoWikidataAPIException):
+            WikidataItemBase._query_wikidata(("Q123", "Q321"), 20)
+        mocked_execute_query.side_effect = KeyError('test')
+        with self.assertRaises(DjangoWikidataAPIException):
+            WikidataItemBase._query_wikidata(("Q123", "Q321"), 20)
 
     def test__from_wikidata(self):
         output = WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][1])

@@ -3,6 +3,7 @@
 import logging
 from wikidataintegrator.wdi_core import WDItemEngine
 
+from .exceptions import DjangoWikidataAPIException
 from .fields import (
     WikidataAltLabelField,
     WikidataConformanceField,
@@ -150,7 +151,7 @@ class WikidataItemBase(object):
         return list(cls._get_all(**kwargs))
 
     @classmethod
-    def _get_all(cls, with_conformance=False, limit=None, minimal=True, page_size=100, page=1):
+    def _get_all(cls, with_conformance=False, limit=None, minimal=True, page_size=100, page=1, values=None):
         """
         Query Wikidata to get all instances of this model.
 
@@ -162,24 +163,31 @@ class WikidataItemBase(object):
             minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
             page_size (Optional[Int]): Number of records per API Request
             page (Optional[Int]): Page position, If None, get all pages
+            values (Optional[List[str]]): List of QID values to use in the query.
 
         Returns (Generator[WikidataItemBase]): Generator of this model's instances
 
         """
         finished = False
         single_page = isinstance(page, int)  # To make multi-page, use 'None'
+        unknown_depth = not values
         page = page or 1
-        remaining_limit = limit
+        value_total = len(values) if values else None
+        remaining_limit = min(limit, value_total) if values else limit
         while not finished:
             offset = (page - 1) * page_size
             query_limit = min(remaining_limit, page_size) if limit else page_size
-            wikidata_response = cls._query_wikidata(limit=query_limit, minimal=minimal, offset=offset)
+            wikidata_response = cls._query_wikidata(limit=query_limit, minimal=minimal, offset=offset, values=values)
             for item in wikidata_response:
                 yield cls._from_wikidata(item, with_conformance=with_conformance)
             api_count = len(wikidata_response)
-            finished = single_page or api_count < page_size
+            _logger.debug("... found %s item(s)", api_count)
             if remaining_limit:
                 remaining_limit -= api_count
+            finished = single_page \
+                or (unknown_depth and not api_count) \
+                or (isinstance(remaining_limit, int) and remaining_limit <= 0) \
+                or (value_total and offset >= value_total)
             page += 1
 
     @classmethod
@@ -248,10 +256,17 @@ class WikidataItemBase(object):
         to_filters = ' '.join(f.to_wikidata_filter() for f in fields if f.required or not minimal)
         to_services = "" if minimal else ' '.join(f.to_wikidata_service() for f in fields)
         to_group = "" if minimal else f"GROUP BY {' '.join(f.to_wikidata_group() for f in fields)}"
-        value_filter = "VALUES (?main) {{ (wd:{vals}) }}".format(vals=") (wd:".join(val for val in values)) \
-            if values else ''
-        limit_by = f"LIMIT {limit}" if limit else ""
-        offset_by = f"OFFSET {offset}" if offset else ""
+        if values:
+            _values = values[offset or 0:]
+            if limit:
+                _values = _values[:limit]
+            value_filter = "VALUES (?main) {{ (wd:{vals}) }}".format(vals=") (wd:".join(val for val in _values))
+            limit_by = ""
+            offset_by = ""
+        else:
+            value_filter = ''
+            limit_by = f"LIMIT {limit}" if limit else ""
+            offset_by = f"OFFSET {offset}" if offset else ""
 
         query = f"""
             SELECT DISTINCT {to_fields}
@@ -299,9 +314,15 @@ class WikidataItemBase(object):
         Returns (List[Dict]]): The results->bindings of the Wikidata Query Service response
 
         """
-        # TODO: Add some custom error handling
-        results_json = WDItemEngine.execute_sparql_query(cls.build_query(values, limit, minimal, offset, count))
-        return results_json['results']['bindings']
+        try:
+            _logger.debug("Executing Wikidata Query - <limit: %s, minimal: %s, offset: %s, count: %s>", limit, minimal,
+                          offset, count)
+            results_json = WDItemEngine.execute_sparql_query(cls.build_query(values, limit, minimal, offset, count))
+            return results_json['results']['bindings']
+        except SystemExit:
+            raise DjangoWikidataAPIException("Error Executing Query to Wikidata Query Service with System Exit")
+        except Exception:
+            raise DjangoWikidataAPIException("Error Executing Query to Wikidata Query Service")
 
     @classmethod
     def _from_wikidata(cls, wikidata_response, with_conformance=False):
