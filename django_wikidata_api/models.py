@@ -34,9 +34,9 @@ class WikidataItemBase(object):
         verbose_name_plural = None
         property_fields = None  # TODO: Make a property_field decorator
 
-    main = WikidataMainEntityField(triples=[], required=True)
-    label = WikidataLabelField(required=True)
-    description = WikidataDescriptionField()
+    main = WikidataMainEntityField(triples=[], required=True, show_in_minimal=True)
+    label = WikidataLabelField(required=True, show_in_minimal=True)
+    description = WikidataDescriptionField(show_in_minimal=True)
     alt_labels = WikidataAltLabelField()
     schema = None
     # Instance Attributes set dynamically:
@@ -254,8 +254,9 @@ class WikidataItemBase(object):
         fields = cls().get_wikidata_fields()
         to_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
         to_filters = ' '.join(f.to_wikidata_filter() for f in fields if f.required or not minimal)
-        to_services = "" if minimal else ' '.join(f.to_wikidata_service() for f in fields)
-        to_group = "" if minimal else f"GROUP BY {' '.join(f.to_wikidata_group() for f in fields)}"
+        to_services = ' '.join(f.to_wikidata_service() for f in fields if not f.use_minimal(minimal)).strip()
+        _to_group_text = ' '.join(f.to_wikidata_group() for f in fields).strip()
+        to_group = f"GROUP BY {_to_group_text}" if _to_group_text else ""
         if values:
             _values = values[offset or 0:]
             if limit:
@@ -427,8 +428,12 @@ class WikidataItemBase(object):
 class WDTriple(object):
     def __init__(self, prop, values, subclass=False, minus=False):
         assert not (len(values) > 1 and minus), "Union and Minus should not be used in the same clause"
+        self.prop_id = prop
         self.prop = "{}/wdt:P279*".format(prop) if subclass else prop
         self.values = values
+        self.subclass = subclass
+        self.minus = minus
+
         query = " UNION ".join(f"{{{{ ?{{name}} wdt:{self.prop} wd:{val}.}}}}" for val in self.values)
         self._query = f"MINUS {query}" if minus else query
 
