@@ -253,7 +253,7 @@ class WikidataItemBase(object):
             minimal = True
         fields = cls().get_wikidata_fields()
         to_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
-        to_filters = ' '.join(f.to_wikidata_filter() for f in fields if f.required or not minimal)
+        to_filters = ' '.join(f.to_wikidata_filter() for f in fields if f.required or not f.use_minimal(minimal))
         to_services = ' '.join(f.to_wikidata_service() for f in fields if not f.use_minimal(minimal)).strip()
         _to_group_text = ' '.join(f.to_wikidata_group() for f in fields).strip()
         to_group = f"GROUP BY {_to_group_text}" if _to_group_text else ""
