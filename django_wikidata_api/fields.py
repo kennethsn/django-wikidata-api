@@ -81,9 +81,22 @@ class WikidataField(object):
         """
         return "" if self.use_minimal(minimal) else f"?{self.name}"
 
+    def to_wikidata_inner_field(self, minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name within the inner query.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (str):
+
+        """
+        return self.to_wikidata_field(minimal)
+
     def to_wikidata_filter(self):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+
         Returns (str):
 
         Raises (AssertionError): If there are no self.properties defined
@@ -95,9 +108,19 @@ class WikidataField(object):
         wd_triple = "?{self.entity_name} {props} ?{self.name}.".format(self=self, props=prop_string)
         return wd_triple if self.required else "OPTIONAL {{ {} }}".format(wd_triple)
 
+    def to_wikidata_outer_filter(self):
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the outer WHERE clause.
+
+        Returns (str):
+
+        """
+        return ""
+
     def to_wikidata_service(self):
         """
         Get the portion of a SPARQL query that handles additional service information.
+
         Returns (""):
 
         """
@@ -106,6 +129,7 @@ class WikidataField(object):
     def to_wikidata_group(self):
         """
         Get the portion of a SPARQL query in the GROUP BY clause.
+
         Returns (str):
 
         """
@@ -136,6 +160,7 @@ class WikidataField(object):
 
 
 class WikidataListResponseMixin(object):
+    """ Mixin for List Response. """
     separator = '|'
     name = None
     default = None
@@ -143,6 +168,14 @@ class WikidataListResponseMixin(object):
     default_serializer_settings = {'allow_null': True, 'allow_empty': True}
 
     def from_wikidata(self, wikidata_response):
+        """
+        Get the field's value from Wikidata query service response.
+        Args:
+            wikidata_response (Dict[str, Dict[str, str]]):
+
+        Returns (str):
+
+        """
         field = get_wikidata_field(wikidata_response, self.name, self.default)
         return field.split(self.separator) if field else self.default
 
@@ -151,25 +184,46 @@ class WikidataNoSPARQLMixin(object):
     """ Wikidata Field that does not impact the underlying SPARQL Queries. """
 
     @staticmethod
-    def to_wikidata_field(minimal=False):
+    def to_wikidata_field(*_, **__):
         """
         Get the portion of a SPARQL query that specifies the field name.
-
-        Args:
-            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
 
         Returns (Literal[""]):
 
         """
         return ""
 
-    def to_wikidata_filter(self):
+    @staticmethod
+    def to_wikidata_filter():
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+
+        Notes:
+            Labels are not in the WHERE clause in a SPARQL query
+
+        Returns (""):
+
+        """
         return ""
 
-    def to_wikidata_service(self):
+    @staticmethod
+    def to_wikidata_service():
+        """
+        Get the portion of a SPARQL query that handles additional service information.
+
+        Returns (str):
+
+        """
         return ""
 
-    def to_wikidata_group(self):
+    @staticmethod
+    def to_wikidata_group():
+        """
+        Get the portion of a SPARQL query in the GROUP BY clause.
+
+        Returns (str):
+
+        """
         return ""
 
 
@@ -199,6 +253,18 @@ class WikidataLabelField(WikidataCharField):
         """
         return "{self.from_name} ({self.from_name} AS ?{self.name})".format(self=self)
 
+    def to_wikidata_inner_field(self, minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name within the inner query.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (str):
+
+        """
+        return ""
+
     def to_wikidata_filter(self):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
@@ -214,6 +280,7 @@ class WikidataLabelField(WikidataCharField):
     def to_wikidata_service(self):
         """
         Get the portion of a SPARQL query that handles additional service information.
+
         Returns (str):
 
         """
@@ -229,6 +296,7 @@ class WikidataDescriptionField(WikidataLabelField):
 
 
 class WikidataEntityField(WikidataField):
+    """ Wikidata Entity Field. """
     # TODO: Add Item and Property SubClasses
     serializer_field_class = serializers.RegexField
     default_serializer_settings = {'allow_blank': False, 'regex': r"(Q|q)\d+", 'min_length': 2, 'max_length': 20,
@@ -241,12 +309,32 @@ class WikidataEntityField(WikidataField):
         self.wikidata_filter = " ".join(triple.format(self.entity_name) for triple in triples)
 
     def to_wikidata_filter(self):
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+
+        Returns (str):
+
+        """
         return self.wikidata_filter if self.required else "OPTIONAL {{ {} }}".format(self.wikidata_filter)
 
     def to_wikidata_group(self):
+        """
+        Get the portion of a SPARQL query in the GROUP BY clause.
+
+        Returns (str):
+
+        """
         return "?{self.name}".format(self=self)
 
     def from_wikidata(self, wikidata_response):
+        """
+        Get the field's value from Wikidata query service response.
+        Args:
+            wikidata_response (Dict[str, Dict[str, str]]):
+
+        Returns (str):
+
+        """
         field = super(WikidataEntityField, self).from_wikidata(wikidata_response)
         return field.replace('http://www.wikidata.org/entity/', '')
 
@@ -268,17 +356,37 @@ class WikidataMainEntityField(WikidataEntityField):
 
 
 class WikidataEntityFilterField(WikidataField):
+    """ Wikidata Entity Filter Field. """
+
     def to_wikidata_filter(self):
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+
+        Returns (str):
+
+        """
         prop_string = self._prop_sparql_string()
         wd_filter = "?{self.entity_name} {props} ?{self.name}_qid. FILTER(?{self.name}_qid=wd:{vals}).".format(
             self=self, props=prop_string, vals="|| ?{self.name}_qid=wd:".join(self.values)).format(self=self)
         return wd_filter if self.required else "OPTIONAL {{ {} }}".format(wd_filter)
 
     def to_wikidata_service(self):
+        """
+        Get the portion of a SPARQL query that handles additional service information.
+
+        Returns (str):
+
+        """
         # TODO: Merge similarities with entity list label
         return "?{self.name}_qid rdfs:label ?{self.name} . ".format(self=self)
 
     def to_wikidata_group(self):
+        """
+        Get the portion of a SPARQL query in the GROUP BY clause.
+
+        Returns (str):
+
+        """
         return "?{self.name}".format(self=self)
 
 
@@ -301,10 +409,28 @@ class WikidataListField(WikidataListResponseMixin, WikidataField):
         Returns (str):
 
         """
-        return "" if self.use_minimal(minimal) else f"(GROUP_CONCAT(DISTINCT ?{self.name}_item; " \
-                                                     f"SEPARATOR='{self.separator}') AS ?{self.name})"
+        return "" if self.use_minimal(minimal) else \
+            f"(GROUP_CONCAT(DISTINCT ?{self.name}_item; SEPARATOR='{self.separator}') AS ?{self.name})"
+
+    def to_wikidata_inner_field(self, minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name within the inner query.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (str):
+
+        """
+        return "" if self.use_minimal(minimal) else f"?{self.name}_item"
 
     def to_wikidata_filter(self):
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+
+        Returns (str):
+
+        """
         prop_string = self._prop_sparql_string()
         wd_filter = "?{self.entity_name} {props} ?{self.name}_item .".format(self=self, props=prop_string)
         return wd_filter if self.required else "OPTIONAL {{ {} }}".format(wd_filter)
@@ -332,13 +458,40 @@ class WikidataAltLabelField(WikidataListField):
         Returns (str):
 
         """
-        return "" if self.use_minimal(minimal) else f"(GROUP_CONCAT(DISTINCT ?{self.entity_name}_alt_label; " \
-                                                     f"SEPARATOR='{self.separator}') AS ?{self.name})"
+        return "" if self.use_minimal(minimal) else \
+            f"(GROUP_CONCAT(DISTINCT ?{self.entity_name}_alt_label; SEPARATOR='{self.separator}') AS ?{self.name})"
+
+    def to_wikidata_inner_field(self, minimal=False):
+        """
+        Get the portion of a SPARQL query that specifies the field name within the inner query.
+
+        Args:
+            minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
+
+        Returns (str):
+
+        """
+        return ""
 
     def to_wikidata_filter(self):
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+
+        Returns (str):
+
+        """
+        return ""
+
+    def to_wikidata_outer_filter(self):
+        """
+        Get the portion of a SPARQL query that specifies the filtering in the outer WHERE clause.
+
+        Returns (str):
+
+        """
         # TODO: add language support in here
         wd_filter = "?{self.entity_name} skos:altLabel ?{self.entity_name}_alt_label ." \
-               "FILTER (lang(?{self.entity_name}_alt_label)='en')".format(self=self)
+                    "FILTER (lang(?{self.entity_name}_alt_label)='en')".format(self=self)
         return wd_filter if self.required else "OPTIONAL {{ {} }}".format(wd_filter)
 
 
@@ -359,10 +512,16 @@ class WikidataEntityListField(WikidataListField):
         Returns (str):
 
         """
-        return "" if self.use_minimal(minimal) else f"(GROUP_CONCAT(DISTINCT ?{self.name}_itemLabel; " \
-                                                     f"SEPARATOR='{self.separator}') AS ?{self.name})"
+        return "" if self.use_minimal(minimal) else \
+            f"(GROUP_CONCAT(DISTINCT ?{self.name}_itemLabel; SEPARATOR='{self.separator}') AS ?{self.name})"
 
     def to_wikidata_service(self):
+        """
+        Get the portion of a SPARQL query that handles additional service information.
+
+        Returns (str):
+
+        """
         return "?{self.name}_item rdfs:label ?{self.name}_itemLabel . ".format(self=self)
 
 
@@ -393,6 +552,7 @@ class SchemaAboutField(WikidataField):
 
 
 class WikidataConformanceField(WikidataNoSPARQLMixin, WikidataField):
+    """ Wikidata Conformance Field. """
     serializer_field_class = WikidataConformanceSerializer
     default_serializer_settings = {}
 
