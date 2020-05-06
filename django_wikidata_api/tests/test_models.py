@@ -304,8 +304,8 @@ class WikidataItemBaseTests(TestCase):
         self.assertIn("?main ?mainLabel (?mainLabel AS ?label) ?mainDescription (?mainDescription AS ?description) "
                       "(GROUP_CONCAT(DISTINCT ?main_alt_label; SEPARATOR=\'|\') AS ?alt_labels)", output)
         self.assertIn("WHERE", output)
-        self.assertIn("SERVICE wikibase:label { bd:serviceParam wikibase:language \"[AUTO_LANGUAGE],en\". ?main rdfs:"
-                      "label ?mainLabel . ?main schema:description ?mainDescription . }", output)
+        self.assertIn("SERVICE wikibase:label { bd:serviceParam wikibase:language \"en,[AUTO_LANGUAGE]", output)
+        self.assertIn("?main rdfs:label ?mainLabel . ?main schema:description ?mainDescription . }", output)
         self.assertIn("GROUP BY ?main ?mainLabel ?mainDescription", output)
 
         output = WikidataItemBase.build_query(values=("Q123", "Q321"))

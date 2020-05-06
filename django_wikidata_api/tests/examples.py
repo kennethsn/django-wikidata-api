@@ -2,10 +2,15 @@
 """ Reusable examples of the django-wikidata-api package for tests. """
 from rest_framework.fields import CharField
 
-from django_wikidata_api.models import WikidataItemBase
+from django_wikidata_api.models import (
+    WDTriple,
+    WikidataItemBase,
+)
 from django_wikidata_api.fields import (
     ModelPropertyField,
+    WikidataMainEntityField,
     WikidataEntityListField,
+    WikidataListField,
 )
 
 
@@ -44,3 +49,15 @@ class CustomTestModel(WikidataItemBase):
     def hidden_property(self):
         """Example hidden property"""
         return "Test Hidden Value"
+
+
+class Taxon(WikidataItemBase):
+    """ Wikidata Taxon with Spanish as the Primary Langauge """
+    class Meta(WikidataItemBase.Meta):
+        """Meta Options"""
+        language = "es"
+        fallback_languages = ""
+    main = WikidataMainEntityField(triples=(WDTriple(prop="P31", values=("Q16521",)),), required=True)
+    grin_ids = WikidataListField(properties=("P1421",), required=True)
+    parents = WikidataEntityListField(properties=("P171",), required=True)
+    ranks = WikidataEntityListField(properties=("P105",), required=True)
