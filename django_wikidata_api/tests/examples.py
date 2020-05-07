@@ -61,3 +61,15 @@ class Taxon(WikidataItemBase):
     grin_ids = WikidataListField(properties=("P1421",), required=True)
     parents = WikidataEntityListField(properties=("P171",), required=True)
     ranks = WikidataEntityListField(properties=("P105",), required=True)
+
+
+class WikiDPItem(WikidataItemBase):
+    """ Using a Custom Wikibase to get Items """
+    class Meta(WikidataItemBase.Meta):
+        """Meta Options"""
+        sparql_endpoint = "https://wikidp.wiki.opencura.com/query/sparql"
+        prefix_map = {
+            "wdt": "http://wikidp.wiki.opencura.com/prop/direct/",
+            "wd": "http://wikidp.wiki.opencura.com/entity/",
+        }
+    instances = WikidataEntityListField(properties=("P1",), required=True)

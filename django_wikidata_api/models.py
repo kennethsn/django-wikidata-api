@@ -6,6 +6,14 @@ from wikidataintegrator.wdi_core import WDItemEngine
 from .constants import (
     ALL_LANGUAGES,
     ENGLISH_LANG,
+    WIKIDATA_ENTITY_PREFIX,
+    WIKIDATA_ENTITY_PREFIX_URL,
+    WIKIDATA_ENTITY_REGEX,
+    WIKIDATA_PROP_PREFIX,
+    WIKIDATA_PROP_PREFIX_URL,
+    WIKIDATA_PROP_REGEX,
+    WIKIDATA_SPARQL_ENDPOINT,
+    WIKIDATA_SUBCLASS_PROP,
 )
 from .exceptions import DjangoWikidataAPIException
 from .fields import (
@@ -19,6 +27,7 @@ from .fields import (
 from .serializers import WikidataItemSerializer
 from .utils import (
     dict_has_substring,
+    extract_from_string_by_regex,
     is_private_name,
     set_kwargs
 )
@@ -39,6 +48,16 @@ class WikidataItemBase(object):
         property_fields = None  # TODO: Make a property_field decorator
         language = ENGLISH_LANG
         fallback_languages = ALL_LANGUAGES  # Use comma-separated string. To enforce only primary language, set to ""
+        entity_id_regex = WIKIDATA_ENTITY_REGEX
+        prop_id_regex = WIKIDATA_PROP_REGEX
+        sparql_endpoint = WIKIDATA_SPARQL_ENDPOINT
+        prop_prefix = WIKIDATA_PROP_PREFIX
+        entity_prefix = WIKIDATA_ENTITY_PREFIX
+        prefix_map = {
+            entity_prefix: WIKIDATA_ENTITY_PREFIX_URL,
+            prop_prefix: WIKIDATA_PROP_PREFIX_URL,
+        }
+        subclass_prop = WIKIDATA_SUBCLASS_PROP
 
     main = WikidataMainEntityField(triples=[], required=True, show_in_minimal=True)
     label = WikidataLabelField(required=True, show_in_minimal=True)
@@ -288,6 +307,34 @@ class WikidataItemBase(object):
         return f"{language or cls.Meta.language},{cls.Meta.fallback_languages}"
 
     @classmethod
+    def _build_query_filters(cls, fields, minimal=False):
+        """
+        Build the portion of a SPARQL query that specifies the filtering in the WHERE clause of all fields.
+
+        Returns (str):
+
+        """
+        prop_prefix = cls.Meta.prop_prefix
+        entity_prefix = cls.Meta.entity_prefix
+        subclass_prop = cls.Meta.subclass_prop
+        return ' '.join(field.to_wikidata_filter(prop_prefix=prop_prefix, entity_prefix=entity_prefix,
+                                                 subclass_prop=subclass_prop)
+                        for field in fields if field.required or not field.use_minimal(minimal))
+
+    @classmethod
+    def _build_query_prefixes(cls):
+        """
+        Build the portion of a SPARQL query that defines all prefixes used.
+
+        Returns (str):
+
+        """
+        return " ".join(
+             f"PREFIX {prefix}: <{url}>"
+             for prefix, url in cls.Meta.prefix_map.items()
+        )
+
+    @classmethod
     def build_query(cls, values=None, limit=None, minimal=False, offset=None, count=False, language=None):
         """
         Build a SPARQL query to fetch data that instantiates instances of models from the Wikidata Query Service.
@@ -307,7 +354,7 @@ class WikidataItemBase(object):
         fields = cls().get_wikidata_fields()
         to_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
         to_inner_fields = ' '.join(f.to_wikidata_inner_field(minimal) for f in fields)
-        to_filters = ' '.join(f.to_wikidata_filter() for f in fields if f.required or not f.use_minimal(minimal))
+        to_filters = cls._build_query_filters(fields, minimal)
         to_outer_filters = ' '.join(f.to_wikidata_outer_filter()
                                     for f in fields if f.required or not f.use_minimal(minimal))
         to_services = ' '.join(f.to_wikidata_service() for f in fields if not f.use_minimal(minimal)).strip()
@@ -325,8 +372,9 @@ class WikidataItemBase(object):
             value_filter = ''
             limit_by = f"LIMIT {limit}" if limit else ""
             offset_by = f"OFFSET {offset}" if offset else ""
-
+        prefixes = cls._build_query_prefixes()
         query = f"""
+            {prefixes}
             SELECT DISTINCT {to_fields}
             WHERE {{
                 {{ SELECT DISTINCT {to_inner_fields} WHERE {{
@@ -385,7 +433,7 @@ class WikidataItemBase(object):
             cls.logger.debug("Executing Wikidata Query - <limit: %s, minimal: %s, offset: %s, count: %s>", limit,
                              minimal, offset, count)
             query = query or cls.build_query(values, limit, minimal, offset, count, language)
-            results_json = WDItemEngine.execute_sparql_query(query)
+            results_json = WDItemEngine.execute_sparql_query(query, endpoint=cls.Meta.sparql_endpoint)
             return results_json['results']['bindings']
         except SystemExit:
             raise DjangoWikidataAPIException("Error Executing Query to Wikidata Query Service with System Exit")
@@ -449,7 +497,7 @@ class WikidataItemBase(object):
             self.conformance = WDItemEngine.check_shex_conformance(self.id, self.schema, output="all")
         else:
             self.logger.debug("No schema associated with this model: Setting result to 'n/a' "
-                          "(Consider adding a model schema before using this functionality)")
+                              "(Consider adding a model schema before using this functionality)")
             self.conformance = {
                 'focus': self.id,
                 'reason': 'No Schema associated with this model',
@@ -467,7 +515,7 @@ class WikidataItemBase(object):
         Returns (WikidataItemBase): self
 
         """
-        setattr(self, field.name, field.from_wikidata(wikidata_response))
+        setattr(self, field.name, field.from_wikidata(wikidata_response, entity_id_regex=self.Meta.entity_id_regex))
         return self
 
     def _has_substring(self, substring):
@@ -491,6 +539,22 @@ class WikidataItemBase(object):
         #       needs to be built once
         return self.build_serializer()(self).data
 
+    def find_entity_id(self, search_string):
+        """
+        Find the Entity Id in a string.
+
+        Returns (Optional[str]):
+        """
+        return extract_from_string_by_regex(self.Meta.entity_id_regex, search_string)
+
+    def find_prop_id(self, search_string):
+        """
+        Find the Property Id in a string.
+
+        Returns (Optional[str]):
+        """
+        return extract_from_string_by_regex(self.Meta.prop_id_regex, search_string)
+
     def __repr__(self):
         return "<{}: {}>".format(self.Meta.verbose_name, self.__str__())
 
@@ -500,25 +564,37 @@ class WikidataItemBase(object):
 
 class WDTriple(object):
     """ Wikidata SPARQL Triple. """
-    def __init__(self, prop, values, subclass=False, minus=False):
+    def __init__(self, prop, values, subclass=False, minus=False,
+                 prop_prefix=WIKIDATA_PROP_PREFIX, entity_prefix=WIKIDATA_ENTITY_PREFIX,
+                 subclass_prop=WIKIDATA_SUBCLASS_PROP):
         assert not (len(values) > 1 and minus), "Union and Minus should not be used in the same clause"
-        self.prop_id = prop
-        self.prop = "{}/wdt:P279*".format(prop) if subclass else prop
+        self.prop = prop
+        self.prop_prefix = prop_prefix
+        self.entity_prefix = entity_prefix
+        self.subclass_prop = subclass_prop
         self.values = values
         self.subclass = subclass
         self.minus = minus
 
-        query = " UNION ".join(f"{{{{ ?{{name}} wdt:{self.prop} wd:{val}.}}}}" for val in self.values)
-        self._query = f"MINUS {query}" if minus else query
-
-    def format(self, field_name):
+    def format(self, field_name, prop_prefix=None, entity_prefix=None, subclass_prop=None):
         """
         Format for a SPARQL Query.
 
         Args:
              field_name (str):
+             prop_prefix (Optional[str]):
+             entity_prefix (Optional[str]):
+             subclass_prop (Optional[str]):
 
         Returns (str):
 
         """
-        return self._query.format(name=field_name)
+        prop_prefix = prop_prefix or self.prop_prefix
+        entity_prefix = entity_prefix or self.entity_prefix
+        subclass_prop = subclass_prop or self.subclass_prop
+
+        query_prop = f"{self.prop}/{prop_prefix}:{subclass_prop}*" if self.subclass else self.prop
+        query = " UNION ".join(f"{{{{ ?{{name}} {prop_prefix}:{query_prop} {entity_prefix}:{val}.}}}}"
+                               for val in self.values)
+        query = f"MINUS {query}" if self.minus else query
+        return query.format(name=field_name)

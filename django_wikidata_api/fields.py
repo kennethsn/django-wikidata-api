@@ -2,11 +2,16 @@
 """ Django Model-like fields to structure and parse Wikidata Query Service interactions """
 from rest_framework import serializers
 
+from .constants import (
+    WIKIDATA_ENTITY_REGEX,
+    WIKIDATA_PROP_PREFIX,
+)
 from .serializers import WikidataConformanceSerializer
 from .utils import (
+    extract_from_string_by_regex,
     get_wikidata_field,
     is_private_name,
-    set_kwargs
+    set_kwargs,
 )
 
 # TODO: Fields
@@ -66,8 +71,8 @@ class WikidataField(object):
         self.serializer = self.serializer_field_class(**serializer_settings)
         return self
 
-    def _prop_sparql_string(self):
-        return "wdt:{}".format('|wdt:'.join(self.properties))
+    def _prop_sparql_string(self, prop_prefix=WIKIDATA_PROP_PREFIX, **_):
+        return f"{prop_prefix}:{f'|{prop_prefix}:'.join(self.properties)}"
 
     def to_wikidata_field(self, minimal=False):
         """
@@ -93,7 +98,7 @@ class WikidataField(object):
         """
         return self.to_wikidata_field(minimal)
 
-    def to_wikidata_filter(self):
+    def to_wikidata_filter(self, **kwargs):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
 
@@ -104,7 +109,7 @@ class WikidataField(object):
         """
         assert isinstance(self.properties, list) and len(self.properties), \
             "There are no properties associated with this field."
-        prop_string = self._prop_sparql_string()
+        prop_string = self._prop_sparql_string(**kwargs)
         wd_triple = "?{self.entity_name} {props} ?{self.name}.".format(self=self, props=prop_string)
         return wd_triple if self.required else "OPTIONAL {{ {} }}".format(wd_triple)
 
@@ -135,7 +140,7 @@ class WikidataField(object):
         """
         return self.from_name
 
-    def from_wikidata(self, wikidata_response):
+    def from_wikidata(self, wikidata_response, **_):
         """
         Get the field's value from Wikidata query service response.
         Args:
@@ -167,7 +172,7 @@ class WikidataListResponseMixin(object):
     serializer_field_class = serializers.ListField
     default_serializer_settings = {'allow_null': True, 'allow_empty': True}
 
-    def from_wikidata(self, wikidata_response):
+    def from_wikidata(self, wikidata_response, **_):
         """
         Get the field's value from Wikidata query service response.
         Args:
@@ -194,7 +199,7 @@ class WikidataNoSPARQLMixin(object):
         return ""
 
     @staticmethod
-    def to_wikidata_filter():
+    def to_wikidata_filter(**_):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
 
@@ -265,7 +270,7 @@ class WikidataLabelField(WikidataCharField):
         """
         return ""
 
-    def to_wikidata_filter(self):
+    def to_wikidata_filter(self, **_):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
 
@@ -306,15 +311,21 @@ class WikidataEntityField(WikidataField):
     def __init__(self, triples, **kwargs):
         self.triples = triples
         super(WikidataEntityField, self).__init__(**kwargs)
-        self.wikidata_filter = " ".join(triple.format(self.entity_name) for triple in triples)
 
-    def to_wikidata_filter(self):
+    def to_wikidata_filter(self, prop_prefix=None, entity_prefix=None, subclass_prop=None):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
+
+        Args:
+             prop_prefix (Optional[str]):
+             entity_prefix (Optional[str]):
+             subclass_prop (Optional[str]):
 
         Returns (str):
 
         """
+        self.wikidata_filter = " ".join(triple.format(self.entity_name, prop_prefix, entity_prefix, subclass_prop)
+                                        for triple in self.triples)
         return self.wikidata_filter if self.required else "OPTIONAL {{ {} }}".format(self.wikidata_filter)
 
     def to_wikidata_group(self):
@@ -326,17 +337,19 @@ class WikidataEntityField(WikidataField):
         """
         return "?{self.name}".format(self=self)
 
-    def from_wikidata(self, wikidata_response):
+    def from_wikidata(self, wikidata_response, entity_id_regex=WIKIDATA_ENTITY_REGEX, **kwargs):
         """
         Get the field's value from Wikidata query service response.
         Args:
             wikidata_response (Dict[str, Dict[str, str]]):
+            entity_id_regex (Optional[str]):
 
         Returns (str):
 
         """
-        field = super(WikidataEntityField, self).from_wikidata(wikidata_response)
-        return field.replace('http://www.wikidata.org/entity/', '')
+        value = super(WikidataEntityField, self).from_wikidata(wikidata_response,
+                                                               entity_id_regex=entity_id_regex, **kwargs)
+        return extract_from_string_by_regex(entity_id_regex, value, value)
 
 
 class WikidataMainEntityField(WikidataEntityField):
@@ -358,14 +371,14 @@ class WikidataMainEntityField(WikidataEntityField):
 class WikidataEntityFilterField(WikidataField):
     """ Wikidata Entity Filter Field. """
 
-    def to_wikidata_filter(self):
+    def to_wikidata_filter(self, **kwargs):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
 
         Returns (str):
 
         """
-        prop_string = self._prop_sparql_string()
+        prop_string = self._prop_sparql_string(**kwargs)
         wd_filter = "?{self.entity_name} {props} ?{self.name}_qid. FILTER(?{self.name}_qid=wd:{vals}).".format(
             self=self, props=prop_string, vals="|| ?{self.name}_qid=wd:".join(self.values)).format(self=self)
         return wd_filter if self.required else "OPTIONAL {{ {} }}".format(wd_filter)
@@ -424,14 +437,14 @@ class WikidataListField(WikidataListResponseMixin, WikidataField):
         """
         return "" if self.use_minimal(minimal) else f"?{self.name}_item"
 
-    def to_wikidata_filter(self):
+    def to_wikidata_filter(self, **kwargs):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
 
         Returns (str):
 
         """
-        prop_string = self._prop_sparql_string()
+        prop_string = self._prop_sparql_string(**kwargs)
         wd_filter = "?{self.entity_name} {props} ?{self.name}_item .".format(self=self, props=prop_string)
         return wd_filter if self.required else "OPTIONAL {{ {} }}".format(wd_filter)
 
@@ -473,7 +486,7 @@ class WikidataAltLabelField(WikidataListField):
         """
         return ""
 
-    def to_wikidata_filter(self):
+    def to_wikidata_filter(self, **_):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
 
@@ -534,7 +547,7 @@ class SchemaAboutField(WikidataField):
         super(SchemaAboutField, self).__init__(**kwargs)
         self.url = url
 
-    def to_wikidata_filter(self):
+    def to_wikidata_filter(self, **_):
         """
         Get the portion of a SPARQL query that specifies the filtering in the WHERE clause.
         Returns (str):

@@ -421,7 +421,12 @@ class WDTripleTests(TestCase):
     def test___init__(self):
         self.assertEqual(self.test_triple.prop, "P1")
         self.assertEqual(self.test_triple.values, [])
-        self.assertEqual(self.test_triple._query, "")
+        self.assertFalse(self.test_triple.minus)
+        self.assertFalse(self.test_triple.subclass)
+        self.assertEqual(self.test_triple.subclass_prop, "P279")
+        self.assertEqual(self.test_triple.subclass_prop, "P279")
+        self.assertEqual(self.test_triple.entity_prefix, "wd")
+        self.assertEqual(self.test_triple.prop_prefix, "wdt")
 
     def test_format(self):
         self.assertEqual(self.test_triple.format("test"), "")
