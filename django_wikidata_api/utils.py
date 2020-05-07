@@ -1,5 +1,6 @@
 # coding=utf-8
 """ utility functions needed for django-wikidata-api. """
+import re
 
 
 def get_wikidata_field(wikidata_response_dict, key, default=None):
@@ -41,3 +42,18 @@ def is_private_name(name_string):
         False
     """
     return name_string.startswith("_")
+
+
+def extract_from_string_by_regex(regex, search_string, default=None):
+    """
+    Get a matched value from a string based on a regular expression.
+
+    Args:
+        regex (str):
+        search_string (str):
+        default (Optional): Return value if not found
+
+    Returns (Optional[str]):
+    """
+    match = re.search(regex, search_string)
+    return match.group() if match else default

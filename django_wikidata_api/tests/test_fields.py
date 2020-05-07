@@ -3,6 +3,7 @@
 from rest_framework.fields import (
     CharField,
     Field,
+    ListField,
     ReadOnlyField,
     URLField,
 )
@@ -13,8 +14,10 @@ from django_wikidata_api.fields import (
     WikidataCharField,
     WikidataDescriptionField,
     WikidataEntityFilterField,
+    WikidataEntityListField,
     WikidataField,
     WikidataLabelField,
+    WikidataListField,
 )
 
 
@@ -156,6 +159,59 @@ class WikidataDescriptionFieldTests(TestCase):
         self.assertTrue(self.test_field.serializer.allow_null)
         self.assertTrue(self.test_field.serializer.allow_blank)
         self.assertEqual(self.test_field.sparql_field_suffix, 'Description')
+
+
+class WikidataListFieldTests(TestCase):
+    def setUp(self):
+        """ Setup WikidataListField tests. """
+        self.test_field = WikidataListField(name="test", properties=("P1", "P2"))
+
+    def test___init__(self):
+        self.assertEqual(self.test_field.serializer_field_class, ListField)
+        self.assertEqual(self.test_field.separator, "|")
+        self.assertEqual(self.test_field.default, [])
+
+    def test_to_wikidata_field(self):
+        self.assertEqual(self.test_field.to_wikidata_field(),
+                         "(GROUP_CONCAT(DISTINCT ?test_item; SEPARATOR='|') AS ?test)")
+        self.assertEqual(self.test_field.to_wikidata_field(True), "")
+
+    def test_to_wikidata_inner_field(self):
+        self.assertEqual(self.test_field.to_wikidata_inner_field(), "?test_item")
+        self.assertEqual(self.test_field.to_wikidata_inner_field(True), "")
+
+    def test_to_wikidata_filter(self):
+        self.assertEqual(self.test_field.to_wikidata_filter(), 'OPTIONAL { ?main wdt:P1|wdt:P2 ?test_item . }')
+        self.assertEqual(self.test_field.to_wikidata_filter(prop_prefix="abc"),
+                         'OPTIONAL { ?main abc:P1|abc:P2 ?test_item . }')
+
+
+class WikidataEntityListFieldTests(TestCase):
+    def setUp(self):
+        """ Setup WikidataEntityListField tests. """
+        self.test_field = WikidataEntityListField(name="test", properties=("P1", "P2"))
+
+    def test___init__(self):
+        self.assertEqual(self.test_field.serializer_field_class, ListField)
+        self.assertEqual(self.test_field.separator, "|")
+        self.assertEqual(self.test_field.default, [])
+
+    def test_to_wikidata_field(self):
+        self.assertEqual(self.test_field.to_wikidata_field(),
+                         "(GROUP_CONCAT(DISTINCT ?test_itemLabel; SEPARATOR='|') AS ?test)")
+        self.assertEqual(self.test_field.to_wikidata_field(True), "")
+
+    def test_to_wikidata_inner_field(self):
+        self.assertEqual(self.test_field.to_wikidata_inner_field(), "?test_item")
+        self.assertEqual(self.test_field.to_wikidata_inner_field(True), "")
+
+    def test_to_wikidata_filter(self):
+        self.assertEqual(self.test_field.to_wikidata_filter(), 'OPTIONAL { ?main wdt:P1|wdt:P2 ?test_item . }')
+        self.assertEqual(self.test_field.to_wikidata_filter(prop_prefix="abc"),
+                         'OPTIONAL { ?main abc:P1|abc:P2 ?test_item . }')
+
+    def test_to_wikidata_service(self):
+        self.assertEqual(self.test_field.to_wikidata_service(), '?test_item rdfs:label ?test_itemLabel . ')
 
 
 class WikidataEntityFilterFieldTests(TestCase):

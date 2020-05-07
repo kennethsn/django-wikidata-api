@@ -3,6 +3,18 @@
 import logging
 from wikidataintegrator.wdi_core import WDItemEngine
 
+from .constants import (
+    ALL_LANGUAGES,
+    ENGLISH_LANG,
+    WIKIDATA_ENTITY_PREFIX,
+    WIKIDATA_ENTITY_PREFIX_URL,
+    WIKIDATA_ENTITY_REGEX,
+    WIKIDATA_PROP_PREFIX,
+    WIKIDATA_PROP_PREFIX_URL,
+    WIKIDATA_PROP_REGEX,
+    WIKIDATA_SPARQL_ENDPOINT,
+    WIKIDATA_SUBCLASS_PROP,
+)
 from .exceptions import DjangoWikidataAPIException
 from .fields import (
     WikidataAltLabelField,
@@ -15,6 +27,7 @@ from .fields import (
 from .serializers import WikidataItemSerializer
 from .utils import (
     dict_has_substring,
+    extract_from_string_by_regex,
     is_private_name,
     set_kwargs
 )
@@ -23,7 +36,6 @@ from .viewsets import generate_wikidata_item_viewset
 _logger = logging.getLogger(__name__)
 
 
-# TODO: Add Language Support
 # TODO: Support nested model responses
 # TODO: (currently child must declare a "main" in order to build query in proper order)
 class WikidataItemBase(object):
@@ -33,12 +45,25 @@ class WikidataItemBase(object):
         verbose_name = 'Wikidata Item'
         verbose_name_plural = None
         property_fields = None  # TODO: Make a property_field decorator
+        language = ENGLISH_LANG
+        fallback_languages = ALL_LANGUAGES  # Use comma-separated string. To enforce only primary language, set to ""
+        entity_id_regex = WIKIDATA_ENTITY_REGEX
+        prop_id_regex = WIKIDATA_PROP_REGEX
+        sparql_endpoint = WIKIDATA_SPARQL_ENDPOINT
+        prop_prefix = WIKIDATA_PROP_PREFIX
+        entity_prefix = WIKIDATA_ENTITY_PREFIX
+        prefix_map = {
+            entity_prefix: WIKIDATA_ENTITY_PREFIX_URL,
+            prop_prefix: WIKIDATA_PROP_PREFIX_URL,
+        }
+        subclass_prop = WIKIDATA_SUBCLASS_PROP
 
     main = WikidataMainEntityField(triples=[], required=True, show_in_minimal=True)
     label = WikidataLabelField(required=True, show_in_minimal=True)
     description = WikidataDescriptionField(show_in_minimal=True)
     alt_labels = WikidataAltLabelField()
     schema = None
+    logger = _logger
     # Instance Attributes set dynamically:
     id = None
     conformance = WikidataConformanceField()
@@ -136,34 +161,60 @@ class WikidataItemBase(object):
         return serializer_class
 
     @classmethod
-    def get_all(cls, **kwargs):
+    def get_all(cls, page=1, **kwargs):
         """
         Query Wikidata to get all instances of this model.
 
         Notes:
             TODO: Consider use the .objects.all() style
+
         Args:
+            page (Optional[Int]): Page position, If None, get all pages
             kwargs (Dict): Keyword args to pass through to the ._get_all method
 
         Returns (List[WikidataItemBase]): Returns a list of this model's instances
 
         """
-        return list(cls._get_all(**kwargs))
+        single_page = isinstance(page, int)  # To make multi-page, use 'None'
+        item_generator = cls._get_all(page=page, **kwargs)
+        if single_page:
+            return list(item_generator)
+        merged_items = cls._merge_duplicates(item_generator)
+        return list(merged_items)
 
     @classmethod
-    def _get_all(cls, with_conformance=False, limit=None, minimal=True, page_size=100, page=1, values=None):
+    def _merge_duplicates(cls, items):
+        qid_to_item = {}
+        for item in items:
+            qid = item.id
+            if qid in qid_to_item:
+                # TODO: For now take the first result, but in the future we could add a method that combines
+                #       the metadata between both so we can "append" in this condition.
+                cls.logger.debug("Need To Merge QIDs: %s", qid)
+            else:
+                qid_to_item[qid] = item
+        return qid_to_item.values()
+
+    @classmethod
+    def _get_all(cls, with_conformance=False, limit=None, minimal=True, page_size=100, page=1, values=None,
+                 language=None):
         """
         Query Wikidata to get all instances of this model.
 
         Notes:
-            TODO: Consider use the .objects.all() style
+            - Based on the way the query is optimized, the page_size and limit will provide UPPER bounds, but
+              the response count can at times be less than the number provided due to post-query clean-up
+              such as merging duplicates.
+
+            - TODO: Consider use the .objects.all() style
         Args:
             with_conformance (Optional[Bool]): True if intending to use SheX validation, False otherwise
             limit (Optional[Int]): The maximum records to query Wikidata for
             minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
-            page_size (Optional[Int]): Number of records per API Request
+            page_size (Optional[Int]): Maximum Number of records per API Request
             page (Optional[Int]): Page position, If None, get all pages
             values (Optional[List[str]]): List of QID values to use in the query.
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
 
         Returns (Generator[WikidataItemBase]): Generator of this model's instances
 
@@ -172,16 +223,29 @@ class WikidataItemBase(object):
         single_page = isinstance(page, int)  # To make multi-page, use 'None'
         unknown_depth = not values
         page = page or 1
+        remaining_limit = limit
         value_total = len(values) if values else None
-        remaining_limit = min(limit, value_total) if values else limit
+        if value_total:
+            remaining_limit = min(remaining_limit, value_total) if remaining_limit else value_total
+
         while not finished:
             offset = (page - 1) * page_size
             query_limit = min(remaining_limit, page_size) if limit else page_size
-            wikidata_response = cls._query_wikidata(limit=query_limit, minimal=minimal, offset=offset, values=values)
+            if values:
+                query_values = values[offset:offset+query_limit]
+                query_offset = 0
+            else:
+                query_values = values
+                query_offset = offset
+
+            cls.logger.debug("Querying for Page: %s  Limit: %s  Offset: %s  Minimal: %s",
+                             page, query_limit, offset, minimal)
+            wikidata_response = cls._query_wikidata(limit=query_limit, minimal=minimal, offset=query_offset,
+                                                    values=query_values, language=language)
             for item in wikidata_response:
                 yield cls._from_wikidata(item, with_conformance=with_conformance)
             api_count = len(wikidata_response)
-            _logger.debug("... found %s item(s)", api_count)
+            cls.logger.debug("... found %s item(s)", api_count)
             if remaining_limit:
                 remaining_limit -= api_count
             finished = single_page \
@@ -191,7 +255,7 @@ class WikidataItemBase(object):
             page += 1
 
     @classmethod
-    def get(cls, entity_id, with_conformance=False):
+    def get(cls, entity_id, with_conformance=False, language=None):
         """
         Query Wikidata to get an instance by Wikidata Entity id.
         Notes:
@@ -199,28 +263,31 @@ class WikidataItemBase(object):
         Args:
             entity_id (str): Wikidata Entity identifier (ex. "Q1234")
             with_conformance (Optional[Bool]): True if intending to use SheX validation, False otherwise
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
 
         Returns (Optional[WikidataItemBase]): Returns this model's instance with id=entity_id if found, None otherwise
 
         """
 
-        wikidata_response = cls._query_wikidata((entity_id,), limit=1)
+        wikidata_response = cls._query_wikidata((entity_id,), language=language)
         if wikidata_response:
             return cls._from_wikidata(wikidata_response[0], with_conformance)
-        _logger.warning("Unable to find %s with Wikidata Entity ID '%s'", cls.Meta.verbose_name, entity_id)
+        cls.logger.warning("Unable to find %s with Wikidata Entity ID '%s'", cls.Meta.verbose_name, entity_id)
         return None
 
     @classmethod
-    def search(cls, search_string):
+    def search(cls, search_string, language=None):
         """
         Get all instances of this model that have an attribute with the given search_string.
         Args:
             search_string (str): Used to perform a substring match of all objects
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
 
         Returns (List[WikidataItemBase]):
 
         """
-        return [obj for obj in cls.get_all(page=None, minimal=False) if obj._has_substring(search_string)]
+        return [obj for obj in cls.get_all(page=None, minimal=False, language=language)
+                if obj._has_substring(search_string)]
 
     @classmethod
     def count(cls):
@@ -236,7 +303,48 @@ class WikidataItemBase(object):
         return 0
 
     @classmethod
-    def build_query(cls, values=None, limit=None, minimal=False, offset=None, count=False):
+    def _build_query_languages(cls, language=None):
+        """
+        Build the languages used to provide the Label Service within the SPARQL Query.
+
+        Args:
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
+
+        Returns (str):
+
+        """
+        return f"{language or cls.Meta.language},{cls.Meta.fallback_languages}"
+
+    @classmethod
+    def _build_query_filters(cls, fields, minimal=False):
+        """
+        Build the portion of a SPARQL query that specifies the filtering in the WHERE clause of all fields.
+
+        Returns (str):
+
+        """
+        prop_prefix = cls.Meta.prop_prefix
+        entity_prefix = cls.Meta.entity_prefix
+        subclass_prop = cls.Meta.subclass_prop
+        return ' '.join(field.to_wikidata_filter(prop_prefix=prop_prefix, entity_prefix=entity_prefix,
+                                                 subclass_prop=subclass_prop)
+                        for field in fields if field.required or not field.use_minimal(minimal))
+
+    @classmethod
+    def _build_query_prefixes(cls):
+        """
+        Build the portion of a SPARQL query that defines all prefixes used.
+
+        Returns (str):
+
+        """
+        return " ".join(
+             f"PREFIX {prefix}: <{url}>"
+             for prefix, url in cls.Meta.prefix_map.items()
+        )
+
+    @classmethod
+    def build_query(cls, values=None, limit=None, minimal=False, offset=None, count=False, language=None):
         """
         Build a SPARQL query to fetch data that instantiates instances of models from the Wikidata Query Service.
         Args:
@@ -245,6 +353,7 @@ class WikidataItemBase(object):
             minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
             offset (Optional[int]): used to position the maximum return value's starting bound
             count (Optional[Bool]): True if only need the count total, False otherwise
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
 
         Returns (str): minified SPARQL Query string
 
@@ -253,10 +362,14 @@ class WikidataItemBase(object):
             minimal = True
         fields = cls().get_wikidata_fields()
         to_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
-        to_filters = ' '.join(f.to_wikidata_filter() for f in fields if f.required or not f.use_minimal(minimal))
+        to_inner_fields = ' '.join(f.to_wikidata_inner_field(minimal) for f in fields)
+        to_filters = cls._build_query_filters(fields, minimal)
+        to_outer_filters = ' '.join(f.to_wikidata_outer_filter()
+                                    for f in fields if f.required or not f.use_minimal(minimal))
         to_services = ' '.join(f.to_wikidata_service() for f in fields if not f.use_minimal(minimal)).strip()
         _to_group_text = ' '.join(f.to_wikidata_group() for f in fields).strip()
         to_group = f"GROUP BY {_to_group_text}" if _to_group_text else ""
+        languages = cls._build_query_languages(language)
         if values:
             _values = values[offset or 0:]
             if limit:
@@ -268,18 +381,25 @@ class WikidataItemBase(object):
             value_filter = ''
             limit_by = f"LIMIT {limit}" if limit else ""
             offset_by = f"OFFSET {offset}" if offset else ""
-
+        prefixes = cls._build_query_prefixes()
         query = f"""
+            {prefixes}
             SELECT DISTINCT {to_fields}
             WHERE {{
-                {value_filter}
-                {to_filters}
-                SERVICE wikibase:label {{ bd:serviceParam wikibase:language "[AUTO_LANGUAGE],en". {to_services} }}
+                {{ SELECT DISTINCT {to_inner_fields} WHERE {{
+                    {value_filter}
+                    {to_filters}
+                }}
+                ORDER BY ?main
+                {limit_by}
+                {offset_by}
+                 
+            
+                 }}
+                {to_outer_filters}
+                SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{languages}". {to_services} }}
             }}
             {to_group}
-            ORDER BY ?main
-            {limit_by}
-            {offset_by}
         """
         if count:
             query = f"SELECT (COUNT(?main) AS ?count) WHERE {{ {query} }}"
@@ -302,7 +422,8 @@ class WikidataItemBase(object):
         return viewset.get_viewset_urls()
 
     @classmethod
-    def _query_wikidata(cls, values=None, limit=None, minimal=False, offset=None, count=False):
+    def _query_wikidata(cls, values=None, limit=None, minimal=False, offset=None, count=False, query=None,
+                        language=None):
         """
         Query Wikidata for data related to this model.
         Args:
@@ -311,14 +432,17 @@ class WikidataItemBase(object):
             minimal (Optional[Bool]): True if only need ID, label and description, False otherwise
             offset (Optional[int]): used to position the maximum return value's starting bound
             count (Optional[Bool]): True if only need the count total, False otherwise
+            query (Optional[str]): Pass in a custom query.
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
 
         Returns (List[Dict]]): The results->bindings of the Wikidata Query Service response
 
         """
         try:
-            _logger.debug("Executing Wikidata Query - <limit: %s, minimal: %s, offset: %s, count: %s>", limit, minimal,
-                          offset, count)
-            results_json = WDItemEngine.execute_sparql_query(cls.build_query(values, limit, minimal, offset, count))
+            cls.logger.debug("Executing Wikidata Query - <limit: %s, minimal: %s, offset: %s, count: %s>", limit,
+                             minimal, offset, count)
+            query = query or cls.build_query(values, limit, minimal, offset, count, language)
+            results_json = WDItemEngine.execute_sparql_query(query, endpoint=cls.Meta.sparql_endpoint)
             return results_json['results']['bindings']
         except SystemExit:
             raise DjangoWikidataAPIException("Error Executing Query to Wikidata Query Service with System Exit")
@@ -372,11 +496,17 @@ class WikidataItemBase(object):
     # INSTANCE METHODS
 
     def set_conformance(self):
+        """
+        Compare Item with ShEx schema.
+
+        Returns (WikidataItemBase): self
+
+        """
         if self.schema:
             self.conformance = WDItemEngine.check_shex_conformance(self.id, self.schema, output="all")
         else:
-            _logger.debug("No schema associated with this model: Setting result to 'n/a' "
-                          "(Consider adding a model schema before using this functionality)")
+            self.logger.debug("No schema associated with this model: Setting result to 'n/a' "
+                              "(Consider adding a model schema before using this functionality)")
             self.conformance = {
                 'focus': self.id,
                 'reason': 'No Schema associated with this model',
@@ -394,7 +524,7 @@ class WikidataItemBase(object):
         Returns (WikidataItemBase): self
 
         """
-        setattr(self, field.name, field.from_wikidata(wikidata_response))
+        setattr(self, field.name, field.from_wikidata(wikidata_response, entity_id_regex=self.Meta.entity_id_regex))
         return self
 
     def _has_substring(self, substring):
@@ -418,24 +548,64 @@ class WikidataItemBase(object):
         #       needs to be built once
         return self.build_serializer()(self).data
 
+    @classmethod
+    def find_entity_id(cls, search_string):
+        """
+        Find the Entity Id in a string.
+
+        Returns (Optional[str]):
+        """
+        return extract_from_string_by_regex(cls.Meta.entity_id_regex, search_string)
+
+    @classmethod
+    def find_prop_id(cls, search_string):
+        """
+        Find the Property Id in a string.
+
+        Returns (Optional[str]):
+        """
+        return extract_from_string_by_regex(cls.Meta.prop_id_regex, search_string)
+
     def __repr__(self):
         return "<{}: {}>".format(self.Meta.verbose_name, self.__str__())
 
     def __str__(self):
-        return "{} ({})".format(self.label, self.main)
+        return "{} ({})".format(self.label, self.main or self.id)
 
 
 class WDTriple(object):
-    def __init__(self, prop, values, subclass=False, minus=False):
+    """ Wikidata SPARQL Triple. """
+    def __init__(self, prop, values, subclass=False, minus=False,
+                 prop_prefix=WIKIDATA_PROP_PREFIX, entity_prefix=WIKIDATA_ENTITY_PREFIX,
+                 subclass_prop=WIKIDATA_SUBCLASS_PROP):
         assert not (len(values) > 1 and minus), "Union and Minus should not be used in the same clause"
-        self.prop_id = prop
-        self.prop = "{}/wdt:P279*".format(prop) if subclass else prop
+        self.prop = prop
+        self.prop_prefix = prop_prefix
+        self.entity_prefix = entity_prefix
+        self.subclass_prop = subclass_prop
         self.values = values
         self.subclass = subclass
         self.minus = minus
 
-        query = " UNION ".join(f"{{{{ ?{{name}} wdt:{self.prop} wd:{val}.}}}}" for val in self.values)
-        self._query = f"MINUS {query}" if minus else query
+    def format(self, field_name, prop_prefix=None, entity_prefix=None, subclass_prop=None):
+        """
+        Format for a SPARQL Query.
 
-    def format(self, field_name):
-        return self._query.format(name=field_name)
+        Args:
+             field_name (str):
+             prop_prefix (Optional[str]):
+             entity_prefix (Optional[str]):
+             subclass_prop (Optional[str]):
+
+        Returns (str):
+
+        """
+        prop_prefix = prop_prefix or self.prop_prefix
+        entity_prefix = entity_prefix or self.entity_prefix
+        subclass_prop = subclass_prop or self.subclass_prop
+
+        query_prop = f"{self.prop}/{prop_prefix}:{subclass_prop}*" if self.subclass else self.prop
+        query = " UNION ".join(f"{{{{ ?{{name}} {prop_prefix}:{query_prop} {entity_prefix}:{val}.}}}}"
+                               for val in self.values)
+        query = f"MINUS {query}" if self.minus else query
+        return query.format(name=field_name)

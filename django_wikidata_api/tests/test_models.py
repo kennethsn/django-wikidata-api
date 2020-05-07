@@ -172,6 +172,8 @@ class WikidataItemBaseTests(TestCase):
         self.assertTrue(serializer_data['conformance']['result'])
         self.assertNotIn('_private_field', serializer_data)
         self.assertNotIn('hidden_field', serializer_data)
+        self.assertEqual("Test Hidden Value", self.custom_test_item_full.hidden_property)
+        self.assertNotIn('hidden_property', serializer_data)
         self.assertEqual(serializer_data['_public_field'], ['TestPublic'])
         self.assertEqual(serializer_data['test_field'], ["Test"])
         self.assertEqual(serializer_data['test_property'], "Test Value")
@@ -230,6 +232,30 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(output_list[1].conformance['focus'], 'Q321')
         self.assertEqual(output_list[1].conformance['reason'], 'No Schema associated with this model')
         self.assertTrue(output_list[1].conformance['result'])
+
+    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
+    def test_get_all__with_values(self, mocked_execute_query):
+        mocked_execute_query.return_value = self.mocked_query_response_empty
+        self.assertEqual(WikidataItemBase.get_all(values=("Q1", "Q2")), [])
+
+        mocked_execute_query.return_value = self.mocked_query_response
+        output_list = WikidataItemBase.get_all(values=("Q1", "Q2"))
+        self.assertEqual(len(output_list), 2)
+        self.assertIsInstance(output_list[0], WikidataItemBase)
+        self.assertEqual(output_list[0].id, 'Q123')
+        self.assertEqual(output_list[0].main, 'Q123')
+
+    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
+    def test_get_all__all_pages(self, mocked_execute_query):
+        mocked_execute_query.return_value = self.mocked_query_response_empty
+        self.assertEqual(WikidataItemBase.get_all(page=None), [])
+
+        mocked_execute_query.return_value = self.mocked_query_response
+        output_list = WikidataItemBase.get_all(page=None, limit=5)
+        self.assertEqual(len(output_list), 2)
+        self.assertIsInstance(output_list[0], WikidataItemBase)
+        self.assertEqual(output_list[0].id, 'Q123')
+        self.assertEqual(output_list[0].main, 'Q123')
 
     @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
     def test_get(self, mocked_execute_query):
@@ -304,8 +330,8 @@ class WikidataItemBaseTests(TestCase):
         self.assertIn("?main ?mainLabel (?mainLabel AS ?label) ?mainDescription (?mainDescription AS ?description) "
                       "(GROUP_CONCAT(DISTINCT ?main_alt_label; SEPARATOR=\'|\') AS ?alt_labels)", output)
         self.assertIn("WHERE", output)
-        self.assertIn("SERVICE wikibase:label { bd:serviceParam wikibase:language \"[AUTO_LANGUAGE],en\". ?main rdfs:"
-                      "label ?mainLabel . ?main schema:description ?mainDescription . }", output)
+        self.assertIn("SERVICE wikibase:label { bd:serviceParam wikibase:language \"en,[AUTO_LANGUAGE]", output)
+        self.assertIn("?main rdfs:label ?mainLabel . ?main schema:description ?mainDescription . }", output)
         self.assertIn("GROUP BY ?main ?mainLabel ?mainDescription", output)
 
         output = WikidataItemBase.build_query(values=("Q123", "Q321"))
@@ -411,6 +437,16 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(str(self.custom_test_item), "None (None)")
         self.assertEqual(str(self.custom_test_item_full), "Test Item (Q123)")
 
+    def test_find_entity_id(self):
+        self.assertEqual(WikidataItemBase.find_entity_id("some_random_Q123_string"), "Q123")
+        self.assertEqual(WikidataItemBase.find_entity_id("some_random_q123_string"), "q123")
+        self.assertIsNone(WikidataItemBase.find_entity_id("some_random_QR123_string"))
+
+    def test_find_prop_id(self):
+        self.assertEqual(WikidataItemBase.find_prop_id("some_random_P123_string"), "P123")
+        self.assertEqual(WikidataItemBase.find_prop_id("some_random_p123_string"), "p123")
+        self.assertIsNone(WikidataItemBase.find_prop_id("some_random_PR123_string"))
+
 
 class WDTripleTests(TestCase):
 
@@ -421,7 +457,12 @@ class WDTripleTests(TestCase):
     def test___init__(self):
         self.assertEqual(self.test_triple.prop, "P1")
         self.assertEqual(self.test_triple.values, [])
-        self.assertEqual(self.test_triple._query, "")
+        self.assertFalse(self.test_triple.minus)
+        self.assertFalse(self.test_triple.subclass)
+        self.assertEqual(self.test_triple.subclass_prop, "P279")
+        self.assertEqual(self.test_triple.subclass_prop, "P279")
+        self.assertEqual(self.test_triple.entity_prefix, "wd")
+        self.assertEqual(self.test_triple.prop_prefix, "wdt")
 
     def test_format(self):
         self.assertEqual(self.test_triple.format("test"), "")
