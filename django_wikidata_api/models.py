@@ -36,7 +36,6 @@ from .viewsets import generate_wikidata_item_viewset
 _logger = logging.getLogger(__name__)
 
 
-# TODO: Add Language Support
 # TODO: Support nested model responses
 # TODO: (currently child must declare a "main" in order to build query in proper order)
 class WikidataItemBase(object):
@@ -224,15 +223,25 @@ class WikidataItemBase(object):
         single_page = isinstance(page, int)  # To make multi-page, use 'None'
         unknown_depth = not values
         page = page or 1
+        remaining_limit = limit
         value_total = len(values) if values else None
-        remaining_limit = min(limit, value_total) if values else limit
+        if value_total:
+            remaining_limit = min(remaining_limit, value_total) if remaining_limit else value_total
+
         while not finished:
             offset = (page - 1) * page_size
             query_limit = min(remaining_limit, page_size) if limit else page_size
-            cls.logger.info("Querying for Page: %s  Limit: %s  Offset: %s  Minimal: %s",
-                            page, query_limit, offset, minimal)
-            wikidata_response = cls._query_wikidata(limit=query_limit, minimal=minimal, offset=offset, values=values,
-                                                    language=language)
+            if values:
+                query_values = values[offset:offset+query_limit]
+                query_offset = 0
+            else:
+                query_values = values
+                query_offset = offset
+
+            cls.logger.debug("Querying for Page: %s  Limit: %s  Offset: %s  Minimal: %s",
+                             page, query_limit, offset, minimal)
+            wikidata_response = cls._query_wikidata(limit=query_limit, minimal=minimal, offset=query_offset,
+                                                    values=query_values, language=language)
             for item in wikidata_response:
                 yield cls._from_wikidata(item, with_conformance=with_conformance)
             api_count = len(wikidata_response)
