@@ -548,21 +548,23 @@ class WikidataItemBase(object):
         #       needs to be built once
         return self.build_serializer()(self).data
 
-    def find_entity_id(self, search_string):
+    @classmethod
+    def find_entity_id(cls, search_string):
         """
         Find the Entity Id in a string.
 
         Returns (Optional[str]):
         """
-        return extract_from_string_by_regex(self.Meta.entity_id_regex, search_string)
+        return extract_from_string_by_regex(cls.Meta.entity_id_regex, search_string)
 
-    def find_prop_id(self, search_string):
+    @classmethod
+    def find_prop_id(cls, search_string):
         """
         Find the Property Id in a string.
 
         Returns (Optional[str]):
         """
-        return extract_from_string_by_regex(self.Meta.prop_id_regex, search_string)
+        return extract_from_string_by_regex(cls.Meta.prop_id_regex, search_string)
 
     def __repr__(self):
         return "<{}: {}>".format(self.Meta.verbose_name, self.__str__())

@@ -72,7 +72,7 @@ class WikidataField(object):
         return self
 
     def _prop_sparql_string(self, prop_prefix=WIKIDATA_PROP_PREFIX, **_):
-        return f"{prop_prefix}:{f'|{prop_prefix}:'.join(self.properties)}"
+        return "|".join(f"{prop_prefix}:{prop}" for prop in self.properties or [])
 
     def to_wikidata_field(self, minimal=False):
         """
