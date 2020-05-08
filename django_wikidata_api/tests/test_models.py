@@ -1,6 +1,9 @@
 # coding=utf-8
 """ Unit tests for models.py """
-from mock import patch
+from mock import (
+    Mock,
+    patch,
+)
 
 from django.test import TestCase
 from django.urls import URLResolver
@@ -22,7 +25,9 @@ class WikidataItemBaseTests(TestCase):
         self.test_item = WikidataItemBase()
         self.test_item_full = WikidataItemBase(label="Test Item", description="Some Test Description", main="Q123",
                                                id=123, alt_labels=["Test"])
-        self.mocked_query_response = {
+
+        self.mocked_query_response = Mock()
+        self.mocked_query_response.json.return_value = {
             'results': {
                 'bindings': [
                     {
@@ -42,7 +47,11 @@ class WikidataItemBaseTests(TestCase):
                 ]
             }
         }
-        self.mocked_query_response_empty = {'results': {'bindings': []}}
+
+        self.mocked_query_response_empty = Mock()
+        self.mocked_query_response_empty.json.return_value = {'results': {'bindings': []}}
+        self.mocked_query_response_count = Mock()
+        self.mocked_query_response_count.json.return_value = {'results': {'bindings': [{'count': {'value': 100}}]}}
         self.CustomTestModel = CustomTestModel
         self.custom_test_item = self.CustomTestModel()
         self.custom_test_item_full = self.CustomTestModel(label="Test Item", main="Q123", id=123,
@@ -184,12 +193,12 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(serializer_data["age"], "37")
         self.assertEqual(serializer_data["wd_prop"], "P123")
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_get_all(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.requests.get')
+    def test_get_all(self, mocked_requests):
+        mocked_requests.return_value = self.mocked_query_response_empty
         self.assertEqual(WikidataItemBase.get_all(), [])
 
-        mocked_execute_query.return_value = self.mocked_query_response
+        mocked_requests.return_value = self.mocked_query_response
         output_list = WikidataItemBase.get_all(limit=100)
         self.assertEqual(len(output_list), 2)
         self.assertIsInstance(output_list[0], WikidataItemBase)
@@ -207,12 +216,12 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(output_list[1].alt_labels, ['alt name 1', 'alt name 2'])
         self.assertIsNone(output_list[1].conformance)
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_get_all__with_conformance(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.requests.get')
+    def test_get_all__with_conformance(self, mocked_requests):
+        mocked_requests.return_value = self.mocked_query_response_empty
         self.assertEqual(WikidataItemBase.get_all(with_conformance=True), [])
 
-        mocked_execute_query.return_value = self.mocked_query_response
+        mocked_requests.return_value = self.mocked_query_response
         output_list = WikidataItemBase.get_all(with_conformance=True)
         self.assertEqual(len(output_list), 2)
         self.assertIsInstance(output_list[0], WikidataItemBase)
@@ -234,36 +243,36 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(output_list[1].conformance['reason'], 'No Schema associated with this model')
         self.assertTrue(output_list[1].conformance['result'])
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_get_all__with_values(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.requests.get')
+    def test_get_all__with_values(self, mocked_requests):
+        mocked_requests.return_value = self.mocked_query_response_empty
         self.assertEqual(WikidataItemBase.get_all(values=("Q1", "Q2")), [])
 
-        mocked_execute_query.return_value = self.mocked_query_response
+        mocked_requests.return_value = self.mocked_query_response
         output_list = WikidataItemBase.get_all(values=("Q1", "Q2"))
         self.assertEqual(len(output_list), 2)
         self.assertIsInstance(output_list[0], WikidataItemBase)
         self.assertEqual(output_list[0].id, 'Q123')
         self.assertEqual(output_list[0].main, 'Q123')
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_get_all__all_pages(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.requests.get')
+    def test_get_all__all_pages(self, mocked_requests):
+        mocked_requests.return_value = self.mocked_query_response_empty
         self.assertEqual(WikidataItemBase.get_all(page=None), [])
 
-        mocked_execute_query.return_value = self.mocked_query_response
+        mocked_requests.return_value = self.mocked_query_response
         output_list = WikidataItemBase.get_all(page=None, limit=5)
         self.assertEqual(len(output_list), 2)
         self.assertIsInstance(output_list[0], WikidataItemBase)
         self.assertEqual(output_list[0].id, 'Q123')
         self.assertEqual(output_list[0].main, 'Q123')
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_get(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.requests.get')
+    def test_get(self, mocked_requests):
+        mocked_requests.return_value = self.mocked_query_response_empty
         self.assertIsNone(WikidataItemBase.get('Q123'))
 
-        mocked_execute_query.return_value = self.mocked_query_response
+        mocked_requests.return_value = self.mocked_query_response
         output = WikidataItemBase.get('Q123')
         self.assertIsInstance(output, WikidataItemBase)
         self.assertEqual(output.id, 'Q123')
@@ -273,12 +282,12 @@ class WikidataItemBaseTests(TestCase):
         self.assertIsNone(output.conformance)
         self.assertEqual(output.alt_labels, [])
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_get__with_conformance(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.requests.get')
+    def test_get__with_conformance(self, mocked_requests):
+        mocked_requests.return_value = self.mocked_query_response_empty
         self.assertIsNone(WikidataItemBase.get('Q123', with_conformance=True))
 
-        mocked_execute_query.return_value = self.mocked_query_response
+        mocked_requests.return_value = self.mocked_query_response
         output = WikidataItemBase.get('Q123', with_conformance=True)
         self.assertIsInstance(output, WikidataItemBase)
         self.assertEqual(output.id, 'Q123')
@@ -296,8 +305,8 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(WikidataItemBase.search("something"), [])
 
         mocked_get_all.return_value = [
-            WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][0]),
-            WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][1]),
+            WikidataItemBase._from_wikidata(self.mocked_query_response.json()['results']['bindings'][0]),
+            WikidataItemBase._from_wikidata(self.mocked_query_response.json()['results']['bindings'][1]),
         ]
 
         self.assertEqual(WikidataItemBase.search("something"), [])
@@ -313,11 +322,11 @@ class WikidataItemBaseTests(TestCase):
         # search by alt_labels
         self.assertEqual(len(WikidataItemBase.search('alt name 2')), 1)
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test_count(self, mocked_execute_query):
-        mocked_execute_query.return_value = {'results': {'bindings': [{'count': {'value': 100}}]}}
+    @patch('django_wikidata_api.models.requests.get')
+    def test_count(self, mocked_requests):
+        mocked_requests.return_value = self.mocked_query_response_count
         self.assertEqual(WikidataItemBase.count(), 100)
-        mocked_execute_query.return_value = {'results': {'bindings': []}}
+        mocked_requests.return_value = self.mocked_query_response_empty
         self.assertEqual(WikidataItemBase.count(), 0)
 
     def test_build_query(self):
@@ -362,30 +371,48 @@ class WikidataItemBaseTests(TestCase):
             if pattern.name != 'api-root':
                 self.assertIn("some_other_slug", pattern.name)
 
-    @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
-    def test__query_wikidata(self, mocked_execute_query):
-        mocked_execute_query.return_value = self.mocked_query_response_empty
+    @patch('django_wikidata_api.models.requests.get')
+    def test__query_wikidata(self, mocked_requests):
+        mocked_requests.return_value = self.mocked_query_response_empty
         self.assertEqual(WikidataItemBase._query_wikidata(), [])
         self.assertEqual(WikidataItemBase._query_wikidata(("Q123", "Q321")), [])
         self.assertEqual(WikidataItemBase._query_wikidata(limit=20), [])
         self.assertEqual(WikidataItemBase._query_wikidata(("Q123", "Q321"), 20), [])
 
-        mocked_execute_query.return_value = self.mocked_query_response
-        expected_out = self.mocked_query_response['results']['bindings']
+        mocked_requests.return_value = self.mocked_query_response
+        expected_out = self.mocked_query_response.json()['results']['bindings']
         self.assertEqual(WikidataItemBase._query_wikidata(), expected_out)
         self.assertEqual(WikidataItemBase._query_wikidata(("Q123", "Q321")), expected_out)
         self.assertEqual(WikidataItemBase._query_wikidata(limit=20), expected_out)
         self.assertEqual(WikidataItemBase._query_wikidata(("Q123", "Q321"), 20), expected_out)
 
-        mocked_execute_query.side_effect = SystemExit('test')
-        with self.assertRaises(DjangoWikidataAPIException):
-            WikidataItemBase._query_wikidata(("Q123", "Q321"), 20)
-        mocked_execute_query.side_effect = KeyError('test')
+        mocked_requests.side_effect = KeyError('test')
         with self.assertRaises(DjangoWikidataAPIException):
             WikidataItemBase._query_wikidata(("Q123", "Q321"), 20)
 
+    @patch('django_wikidata_api.models.requests.get')
+    @patch('django_wikidata_api.models.requests.post')
+    def test__execute_query(self, mocked_requests_post, mocked_requests_get):
+        mocked_requests_post.return_value = self.mocked_query_response_empty
+        mocked_requests_get.return_value = self.mocked_query_response_empty
+        self.assertEqual(WikidataItemBase._execute_query("test"), [])
+        self.assertEqual(WikidataItemBase._execute_query("a"*1500), [])
+
+        mocked_requests_post.return_value = self.mocked_query_response
+        mocked_requests_get.return_value = self.mocked_query_response
+        expected_out = self.mocked_query_response.json()['results']['bindings']
+        self.assertEqual(WikidataItemBase._execute_query("test"), expected_out)
+        self.assertEqual(WikidataItemBase._execute_query("a"*1500), expected_out)
+
+        mocked_requests_post.side_effect = KeyError('test')
+        mocked_requests_get.side_effect = KeyError('test')
+        with self.assertRaises(DjangoWikidataAPIException):
+            WikidataItemBase._execute_query("test")
+        with self.assertRaises(DjangoWikidataAPIException):
+            WikidataItemBase._execute_query("a"*1500)
+
     def test__from_wikidata(self):
-        output = WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][1])
+        output = WikidataItemBase._from_wikidata(self.mocked_query_response.json()['results']['bindings'][1])
         self.assertIsInstance(output, WikidataItemBase)
         self.assertEqual(output.id, 'Q321')
         self.assertEqual(output.main, 'Q321')
@@ -393,7 +420,7 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(output.alt_labels, ['alt name 1', 'alt name 2'])
         self.assertIsNone(output.conformance)
 
-        output = WikidataItemBase._from_wikidata(self.mocked_query_response['results']['bindings'][1],
+        output = WikidataItemBase._from_wikidata(self.mocked_query_response.json()['results']['bindings'][1],
                                                  with_conformance=True)
         self.assertIsInstance(output, WikidataItemBase)
         self.assertEqual(output.id, 'Q321')

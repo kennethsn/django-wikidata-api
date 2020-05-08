@@ -22,6 +22,7 @@ setup(
         'djangorestframework>=3.11.0',
         'drf-yasg>=1.17',
         'mock',
+        'requests',
         'wikidataintegrator>=0.4.2, <=0.5.0',
         # Wikidataintegrator packages that aren't tied down
         'pandas>=0.25.2',
