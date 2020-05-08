@@ -333,6 +333,10 @@ class WikidataItemBase(object):
         """
         Build the portion of a SPARQL query that specifies the filtering in the WHERE clause of all fields.
 
+        Args:
+            fields (List[WikidataField]):
+            minimal (Optional[bool]):
+
         Returns (str):
 
         """
@@ -373,6 +377,36 @@ class WikidataItemBase(object):
         return f"VALUES ?main {{{formatted_entities}}}"
 
     @classmethod
+    def _build_query_service_clause(cls, fields, minimal, language=None):
+        """
+        Build the values portion of a SPARQL query.
+
+        Args:
+            fields (List[WikidataField]):
+            minimal (Optional[bool]):
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
+
+        Returns (str):
+
+        """
+        query_services = ' '.join(f.to_wikidata_service() for f in fields if not f.use_minimal(minimal)).strip()
+        languages = cls._build_query_languages(language)
+        return f"SERVICE wikibase:label {{ bd:serviceParam wikibase:language '{languages}'. {query_services} }}"
+
+    @classmethod
+    def _build_query_order_by(cls, count=False):
+        """
+        Build the ORDER portion of a SPARQL query.
+
+        Args:
+            count (Optional[Bool]):
+
+        Returns (str):
+
+        """
+        return "" if count else "ORDER BY ?main"
+
+    @classmethod
     def build_query(cls, values=None, limit=None, minimal=False, offset=None, count=False, language=None):
         """
         Build a SPARQL query to fetch data that instantiates instances of models from the Wikidata Query Service.
@@ -390,42 +424,40 @@ class WikidataItemBase(object):
         if count:
             minimal = True
         fields = cls().get_wikidata_fields()
-        to_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
-        to_inner_fields = ' '.join(f.to_wikidata_inner_field(minimal) for f in fields)
-        to_filters = cls._build_query_filters(fields, minimal)
-        to_outer_filters = ' '.join(f.to_wikidata_outer_filter()
-                                    for f in fields if f.required or not f.use_minimal(minimal))
-        to_services = ' '.join(f.to_wikidata_service() for f in fields if not f.use_minimal(minimal)).strip()
-        _to_group_text = ' '.join(f.to_wikidata_group() for f in fields).strip()
-        to_group = f"GROUP BY {_to_group_text}" if _to_group_text else ""
-        languages = cls._build_query_languages(language)
+        primary_language = cls._get_primary_language(language)
+
+        query_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
+        query_inner_fields = ' '.join(f.to_wikidata_inner_field(minimal) for f in fields)
+        query_filters = cls._build_query_filters(fields, minimal)
+        query_outer_filters = ' '.join(f.to_wikidata_outer_filter(language=primary_language)
+                                       for f in fields if f.required or not f.use_minimal(minimal))
+        _group_by_text = ' '.join(f.to_wikidata_group() for f in fields).strip()
+        group_by = f"GROUP BY {_group_by_text}" if _group_by_text else ""
         values_filter = cls._build_query_values(values)
-        if values:
-            limit_by = ""
-            offset_by = ""
-        else:
-            limit_by = f"LIMIT {limit}" if limit else ""
-            offset_by = f"OFFSET {offset}" if offset else ""
+        order_by = cls._build_query_order_by(count=count)
         prefixes = cls._build_query_prefixes()
-        query = f"""
-            {prefixes}
-            SELECT DISTINCT {to_fields}
-            WHERE {{
-                {{ SELECT DISTINCT {to_inner_fields} WHERE {{
-                    {values_filter}
-                    {to_filters}
+        query_service = cls._build_query_service_clause(fields, minimal, language)
+        limit_by = f"LIMIT {limit}" if limit else ""
+        offset_by = f"OFFSET {offset}" if offset else ""
+        if values_filter:
+            query = f"""
+                {prefixes}
+                SELECT DISTINCT {query_fields}
+                WHERE {{
+                    {values_filter} {query_filters} {query_outer_filters} {query_service}
                 }}
-                ORDER BY ?main
-                {limit_by}
-                {offset_by}
-                 
-            
-                 }}
-                {to_outer_filters}
-                SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{languages}". {to_services} }}
-            }}
-            {to_group}
-        """
+                {group_by} {order_by} {limit_by} {offset_by}
+            """
+        else:
+            subquery = f"SELECT DISTINCT {query_inner_fields} " \
+                       f"WHERE {{{query_filters}}} {order_by} {limit_by} {offset_by}"
+            query = f"""
+                {prefixes}
+                SELECT DISTINCT {query_fields} WHERE {{
+                    {{ {subquery} }} {query_outer_filters} {query_service}
+                }}
+                {group_by}
+            """
         if count:
             query = f"SELECT (COUNT(?main) AS ?count) WHERE {{ {query} }}"
         return " ".join(query.split())
