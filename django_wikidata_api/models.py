@@ -303,6 +303,19 @@ class WikidataItemBase(object):
         return 0
 
     @classmethod
+    def _get_primary_language(cls, language=None):
+        """
+        Get the primary language.
+
+        Args:
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
+
+        Returns (str):
+
+        """
+        return language or cls.Meta.language
+
+    @classmethod
     def _build_query_languages(cls, language=None):
         """
         Build the languages used to provide the Label Service within the SPARQL Query.
@@ -313,7 +326,7 @@ class WikidataItemBase(object):
         Returns (str):
 
         """
-        return f"{language or cls.Meta.language},{cls.Meta.fallback_languages}"
+        return f"{cls._get_primary_language(language)},{cls.Meta.fallback_languages}"
 
     @classmethod
     def _build_query_filters(cls, fields, minimal=False):
