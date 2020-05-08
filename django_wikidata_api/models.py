@@ -232,7 +232,7 @@ class WikidataItemBase(object):
             offset = (page - 1) * page_size
             query_limit = min(remaining_limit, page_size) if limit else page_size
             if values:
-                query_values = values[offset:offset+query_limit]
+                query_values = list(values)[offset:offset+query_limit]
                 query_offset = 0
             else:
                 query_values = values
@@ -344,6 +344,22 @@ class WikidataItemBase(object):
         )
 
     @classmethod
+    def _build_query_values(cls, values):
+        """
+        Build the values portion of a SPARQL query.
+
+        Args:
+            values (Optional[Iterable[str]]): list-like structure containing Wikidata Entity ID's, ex. ['Q123', 'Q321']
+
+        Returns (str):
+
+        """
+        if not values:
+            return ""
+        formatted_entities = " ".join(f"{cls.Meta.entity_prefix}:{value}" for value in values)
+        return f"VALUES ?main {{{formatted_entities}}}"
+
+    @classmethod
     def build_query(cls, values=None, limit=None, minimal=False, offset=None, count=False, language=None):
         """
         Build a SPARQL query to fetch data that instantiates instances of models from the Wikidata Query Service.
@@ -370,15 +386,11 @@ class WikidataItemBase(object):
         _to_group_text = ' '.join(f.to_wikidata_group() for f in fields).strip()
         to_group = f"GROUP BY {_to_group_text}" if _to_group_text else ""
         languages = cls._build_query_languages(language)
+        values_filter = cls._build_query_values(values)
         if values:
-            _values = values[offset or 0:]
-            if limit:
-                _values = _values[:limit]
-            value_filter = "VALUES (?main) {{ (wd:{vals}) }}".format(vals=") (wd:".join(val for val in _values))
             limit_by = ""
             offset_by = ""
         else:
-            value_filter = ''
             limit_by = f"LIMIT {limit}" if limit else ""
             offset_by = f"OFFSET {offset}" if offset else ""
         prefixes = cls._build_query_prefixes()
@@ -387,7 +399,7 @@ class WikidataItemBase(object):
             SELECT DISTINCT {to_fields}
             WHERE {{
                 {{ SELECT DISTINCT {to_inner_fields} WHERE {{
-                    {value_filter}
+                    {values_filter}
                     {to_filters}
                 }}
                 ORDER BY ?main

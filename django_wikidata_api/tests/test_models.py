@@ -336,7 +336,7 @@ class WikidataItemBaseTests(TestCase):
         self.assertIn("GROUP BY ?main ?mainLabel ?mainDescription", output)
 
         output = WikidataItemBase.build_query(values=("Q123", "Q321"))
-        self.assertIn("VALUES (?main) { (wd:Q123) (wd:Q321) }", output)
+        self.assertIn("VALUES ?main {wd:Q123 wd:Q321}", output)
         self.assertNotIn("  ", output)
         self.assertNotIn("\n", output)
         self.assertNotIn("\t", output)
