@@ -6,7 +6,10 @@ from .constants import (
     WIKIDATA_ENTITY_REGEX,
     WIKIDATA_PROP_PREFIX,
 )
-from .serializers import WikidataConformanceSerializer
+from .serializers import (
+    WDItemIDField,
+    WikidataConformanceSerializer,
+)
 from .utils import (
     extract_from_string_by_regex,
     get_wikidata_field,
@@ -303,9 +306,8 @@ class WikidataDescriptionField(WikidataLabelField):
 class WikidataEntityField(WikidataField):
     """ Wikidata Entity Field. """
     # TODO: Add Item and Property SubClasses
-    serializer_field_class = serializers.RegexField
-    default_serializer_settings = {'allow_blank': False, 'regex': r"(Q|q)\d+", 'min_length': 2, 'max_length': 20,
-                                   'help_text': "Wikidata Item Identifier (ex. Q59961716)"}
+    serializer_field_class = WDItemIDField
+    default_serializer_settings = {'allow_blank': False}
     wikidata_filter = None
 
     def __init__(self, triples, **kwargs):

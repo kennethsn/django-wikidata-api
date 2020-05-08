@@ -182,6 +182,7 @@ class WikidataItemBaseTests(TestCase):
         self.assertEqual(serializer_data['test_attr'], "Test Attr")
         self.assertNotIn("test_attr_2", serializer_data)
         self.assertEqual(serializer_data["age"], "37")
+        self.assertEqual(serializer_data["wd_prop"], "P123")
 
     @patch('django_wikidata_api.models.WDItemEngine.execute_sparql_query')
     def test_get_all(self, mocked_execute_query):
