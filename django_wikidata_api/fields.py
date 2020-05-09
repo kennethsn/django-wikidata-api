@@ -3,10 +3,14 @@
 from rest_framework import serializers
 
 from .constants import (
+    ENGLISH_LANG,
     WIKIDATA_ENTITY_REGEX,
     WIKIDATA_PROP_PREFIX,
 )
-from .serializers import WikidataConformanceSerializer
+from .serializers import (
+    WDItemIDField,
+    WikidataConformanceSerializer,
+)
 from .utils import (
     extract_from_string_by_regex,
     get_wikidata_field,
@@ -113,7 +117,7 @@ class WikidataField(object):
         wd_triple = "?{self.entity_name} {props} ?{self.name}.".format(self=self, props=prop_string)
         return wd_triple if self.required else "OPTIONAL {{ {} }}".format(wd_triple)
 
-    def to_wikidata_outer_filter(self):
+    def to_wikidata_outer_filter(self, **_):
         """
         Get the portion of a SPARQL query that specifies the filtering in the outer WHERE clause.
 
@@ -303,9 +307,8 @@ class WikidataDescriptionField(WikidataLabelField):
 class WikidataEntityField(WikidataField):
     """ Wikidata Entity Field. """
     # TODO: Add Item and Property SubClasses
-    serializer_field_class = serializers.RegexField
-    default_serializer_settings = {'allow_blank': False, 'regex': r"(Q|q)\d+", 'min_length': 2, 'max_length': 20,
-                                   'help_text': "Wikidata Item Identifier (ex. Q59961716)"}
+    serializer_field_class = WDItemIDField
+    default_serializer_settings = {'allow_blank': False}
     wikidata_filter = None
 
     def __init__(self, triples, **kwargs):
@@ -495,16 +498,18 @@ class WikidataAltLabelField(WikidataListField):
         """
         return ""
 
-    def to_wikidata_outer_filter(self):
+    def to_wikidata_outer_filter(self, language=ENGLISH_LANG, **_):
         """
         Get the portion of a SPARQL query that specifies the filtering in the outer WHERE clause.
+
+        Args:
+            language (Optional[str]):
 
         Returns (str):
 
         """
-        # TODO: add language support in here
-        wd_filter = "?{self.entity_name} skos:altLabel ?{self.entity_name}_alt_label ." \
-                    "FILTER (lang(?{self.entity_name}_alt_label)='en')".format(self=self)
+        wd_filter = f"?{self.entity_name} skos:altLabel ?{self.entity_name}_alt_label ." \
+                    f"FILTER (lang(?{self.entity_name}_alt_label)='{language}')"
         return wd_filter if self.required else "OPTIONAL {{ {} }}".format(wd_filter)
 
 

@@ -1,6 +1,7 @@
 # coding=utf-8
 """ Django-Style Wikidata Models. """
 import logging
+import requests
 from wikidataintegrator.wdi_core import WDItemEngine
 
 from .constants import (
@@ -57,6 +58,9 @@ class WikidataItemBase(object):
             prop_prefix: WIKIDATA_PROP_PREFIX_URL,
         }
         subclass_prop = WIKIDATA_SUBCLASS_PROP
+        user_agent = "django-wikidata-api/application"
+        default_page_size = 100
+        query_max_get_request_length = 1000
 
     main = WikidataMainEntityField(triples=[], required=True, show_in_minimal=True)
     label = WikidataLabelField(required=True, show_in_minimal=True)
@@ -196,7 +200,7 @@ class WikidataItemBase(object):
         return qid_to_item.values()
 
     @classmethod
-    def _get_all(cls, with_conformance=False, limit=None, minimal=True, page_size=100, page=1, values=None,
+    def _get_all(cls, with_conformance=False, limit=None, minimal=True, page_size=None, page=1, values=None,
                  language=None):
         """
         Query Wikidata to get all instances of this model.
@@ -221,6 +225,7 @@ class WikidataItemBase(object):
         """
         finished = False
         single_page = isinstance(page, int)  # To make multi-page, use 'None'
+        page_size = page_size or cls.Meta.default_page_size
         unknown_depth = not values
         page = page or 1
         remaining_limit = limit
@@ -232,7 +237,7 @@ class WikidataItemBase(object):
             offset = (page - 1) * page_size
             query_limit = min(remaining_limit, page_size) if limit else page_size
             if values:
-                query_values = values[offset:offset+query_limit]
+                query_values = list(values)[offset:offset+query_limit]
                 query_offset = 0
             else:
                 query_values = values
@@ -303,6 +308,19 @@ class WikidataItemBase(object):
         return 0
 
     @classmethod
+    def _get_primary_language(cls, language=None):
+        """
+        Get the primary language.
+
+        Args:
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
+
+        Returns (str):
+
+        """
+        return language or cls.Meta.language
+
+    @classmethod
     def _build_query_languages(cls, language=None):
         """
         Build the languages used to provide the Label Service within the SPARQL Query.
@@ -313,12 +331,16 @@ class WikidataItemBase(object):
         Returns (str):
 
         """
-        return f"{language or cls.Meta.language},{cls.Meta.fallback_languages}"
+        return f"{cls._get_primary_language(language)},{cls.Meta.fallback_languages}"
 
     @classmethod
     def _build_query_filters(cls, fields, minimal=False):
         """
         Build the portion of a SPARQL query that specifies the filtering in the WHERE clause of all fields.
+
+        Args:
+            fields (List[WikidataField]):
+            minimal (Optional[bool]):
 
         Returns (str):
 
@@ -344,6 +366,52 @@ class WikidataItemBase(object):
         )
 
     @classmethod
+    def _build_query_values(cls, values):
+        """
+        Build the values portion of a SPARQL query.
+
+        Args:
+            values (Optional[Iterable[str]]): list-like structure containing Wikidata Entity ID's, ex. ['Q123', 'Q321']
+
+        Returns (str):
+
+        """
+        if not values:
+            return ""
+        formatted_entities = " ".join(f"{cls.Meta.entity_prefix}:{value}" for value in values)
+        return f"VALUES ?main {{{formatted_entities}}}"
+
+    @classmethod
+    def _build_query_service_clause(cls, fields, minimal, language=None):
+        """
+        Build the values portion of a SPARQL query.
+
+        Args:
+            fields (List[WikidataField]):
+            minimal (Optional[bool]):
+            language (Optional[str]): Set the Primary language. If not set, will default to Meta Option.
+
+        Returns (str):
+
+        """
+        query_services = ' '.join(f.to_wikidata_service() for f in fields if not f.use_minimal(minimal)).strip()
+        languages = cls._build_query_languages(language)
+        return f"SERVICE wikibase:label {{ bd:serviceParam wikibase:language '{languages}'. {query_services} }}"
+
+    @classmethod
+    def _build_query_order_by(cls, count=False):
+        """
+        Build the ORDER portion of a SPARQL query.
+
+        Args:
+            count (Optional[Bool]):
+
+        Returns (str):
+
+        """
+        return "" if count else "ORDER BY ?main"
+
+    @classmethod
     def build_query(cls, values=None, limit=None, minimal=False, offset=None, count=False, language=None):
         """
         Build a SPARQL query to fetch data that instantiates instances of models from the Wikidata Query Service.
@@ -361,48 +429,42 @@ class WikidataItemBase(object):
         if count:
             minimal = True
         fields = cls().get_wikidata_fields()
-        to_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
-        to_inner_fields = ' '.join(f.to_wikidata_inner_field(minimal) for f in fields)
-        to_filters = cls._build_query_filters(fields, minimal)
-        to_outer_filters = ' '.join(f.to_wikidata_outer_filter()
-                                    for f in fields if f.required or not f.use_minimal(minimal))
-        to_services = ' '.join(f.to_wikidata_service() for f in fields if not f.use_minimal(minimal)).strip()
-        _to_group_text = ' '.join(f.to_wikidata_group() for f in fields).strip()
-        to_group = f"GROUP BY {_to_group_text}" if _to_group_text else ""
-        languages = cls._build_query_languages(language)
-        if values:
-            _values = values[offset or 0:]
-            if limit:
-                _values = _values[:limit]
-            value_filter = "VALUES (?main) {{ (wd:{vals}) }}".format(vals=") (wd:".join(val for val in _values))
-            limit_by = ""
-            offset_by = ""
-        else:
-            value_filter = ''
-            limit_by = f"LIMIT {limit}" if limit else ""
-            offset_by = f"OFFSET {offset}" if offset else ""
+        primary_language = cls._get_primary_language(language)
+
+        query_fields = ' '.join(f.to_wikidata_field(minimal) for f in fields)
+        query_inner_fields = ' '.join(f.to_wikidata_inner_field(minimal) for f in fields)
+        query_filters = cls._build_query_filters(fields, minimal)
+        query_outer_filters = ' '.join(f.to_wikidata_outer_filter(language=primary_language)
+                                       for f in fields if f.required or not f.use_minimal(minimal))
+        _group_by_text = ' '.join(f.to_wikidata_group() for f in fields).strip()
+        group_by = f"GROUP BY {_group_by_text}" if _group_by_text else ""
+        values_filter = cls._build_query_values(values)
+        order_by = cls._build_query_order_by(count=count)
         prefixes = cls._build_query_prefixes()
-        query = f"""
-            {prefixes}
-            SELECT DISTINCT {to_fields}
-            WHERE {{
-                {{ SELECT DISTINCT {to_inner_fields} WHERE {{
-                    {value_filter}
-                    {to_filters}
+        query_service = cls._build_query_service_clause(fields, minimal, language)
+        limit_by = f"LIMIT {limit}" if limit else ""
+        offset_by = f"OFFSET {offset}" if offset else ""
+        if values_filter:
+            subquery = f"""
+                SELECT DISTINCT {query_fields}
+                WHERE {{
+                    {values_filter} {query_filters} {query_outer_filters} {query_service}
                 }}
-                ORDER BY ?main
-                {limit_by}
-                {offset_by}
-                 
-            
-                 }}
-                {to_outer_filters}
-                SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{languages}". {to_services} }}
-            }}
-            {to_group}
-        """
+                {group_by} {order_by} {limit_by} {offset_by}
+            """
+            query = subquery
+        else:
+            subquery = f"SELECT DISTINCT {query_inner_fields} " \
+                       f"WHERE {{{query_filters}}} {order_by} {limit_by} {offset_by}"
+            query = f"""
+                SELECT DISTINCT {query_fields} WHERE {{
+                    {{ {subquery} }} {query_outer_filters} {query_service}
+                }}
+                {group_by}
+            """
         if count:
-            query = f"SELECT (COUNT(?main) AS ?count) WHERE {{ {query} }}"
+            query = f"SELECT (COUNT(?main) AS ?count) WHERE {{ {subquery} }}"
+        query = f"{prefixes} {query}"
         return " ".join(query.split())
 
     @classmethod
@@ -438,16 +500,43 @@ class WikidataItemBase(object):
         Returns (List[Dict]]): The results->bindings of the Wikidata Query Service response
 
         """
+        cls.logger.debug("Executing Wikidata Query - <limit: %s, minimal: %s, offset: %s, count: %s>",
+                         limit, minimal, offset, count)
+        query = query or cls.build_query(values, limit, minimal, offset, count, language)
+        return cls._execute_query(query)
+
+    @classmethod
+    def _execute_query(cls, query, sparql_endpoint=None, user_agent=None):
+        """
+        Execute a SPARQL Query to a Wikibase.
+
+        Args:
+            query (str):
+            sparql_endpoint (Optional[str]):
+            user_agent (Optional[str]):
+
+        Returns (List[Dict]): The results->bindings of the Wikidata Query Service response
+
+        Raises:
+            DjangoWikidataAPIException: If there is an error processing the query.
+
+        """
+        sparql_endpoint = sparql_endpoint or cls.Meta.sparql_endpoint
+        user_agent = user_agent or cls.Meta.user_agent
+        query = f"#Tool: django-wikidata-api\n{query}"
+        data = {'query': query}
+        headers = {'Accept': 'application/sparql-results+json', 'User-Agent': user_agent}
         try:
-            cls.logger.debug("Executing Wikidata Query - <limit: %s, minimal: %s, offset: %s, count: %s>", limit,
-                             minimal, offset, count)
-            query = query or cls.build_query(values, limit, minimal, offset, count, language)
-            results_json = WDItemEngine.execute_sparql_query(query, endpoint=cls.Meta.sparql_endpoint)
-            return results_json['results']['bindings']
-        except SystemExit:
-            raise DjangoWikidataAPIException("Error Executing Query to Wikidata Query Service with System Exit")
-        except Exception:
-            raise DjangoWikidataAPIException("Error Executing Query to Wikidata Query Service")
+            if len(query) < cls.Meta.query_max_get_request_length:
+                data["format"] = "json"
+                response = requests.get(sparql_endpoint, params=data, headers=headers)
+            else:
+                response = requests.post(sparql_endpoint, data=data, headers=headers)
+            response.raise_for_status()
+            response_json = response.json()
+            return response_json['results']['bindings']
+        except Exception as e:
+            raise DjangoWikidataAPIException(f"Error Executing Query to Wikidata Query Service: {e}")
 
     @classmethod
     def _from_wikidata(cls, wikidata_response, with_conformance=False):

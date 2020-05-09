@@ -11,31 +11,73 @@ from rest_framework.serializers import (
     SerializerMetaclass,
 )
 
+from .constants import (
+    WIKIDATA_ENTITY_REGEX,
+    WIKIDATA_PROP_REGEX,
+)
 
-class WikidataItemSerializer(Serializer):
+
+class WDItemIDField(RegexField):
+    """ Wikidata Item Field """
+
+    def __init__(self, regex=WIKIDATA_ENTITY_REGEX, help_text="Wikidata Item Identifier (ex. Q55090238)", min_length=2,
+                 max_length=20, **kwargs):
+        super(WDItemIDField, self).__init__(regex=regex, help_text=help_text, min_length=min_length,
+                                            max_length=max_length, **kwargs)
+
+
+class WDPropertyIDField(RegexField):
+    """ Wikidata Property Field """
+
+    def __init__(self, regex=WIKIDATA_PROP_REGEX, help_text="Wikidata Property Identifier (ex. P31)", min_length=2,
+                 max_length=20, **kwargs):
+        super(WDPropertyIDField, self).__init__(regex=regex, help_text=help_text, min_length=min_length,
+                                                max_length=max_length, **kwargs)
+
+
+class DjangoWikidataAPIReadOnlySerializer(Serializer):
+    """ Base Serializer for Read Only Support. """
+
+    def create(self, validated_data):
+        """
+        Create an object.
+
+        Notes:
+            - This method is not used.
+
+        Returns:
+
+        """
+        pass
+
+    def update(self, instance, validated_data):
+        """
+        Update an object.
+
+        Notes:
+            - This method is not used.
+
+        Returns:
+
+        """
+        pass
+
+
+class WikidataItemSerializer(DjangoWikidataAPIReadOnlySerializer):
     """ Stories API Serializer Base Class """
 
     class Meta(SerializerMetaclass):
         """ Meta class for Story API Serializer. """
 
 
-class WikidataConformanceSerializer(Serializer):
-    # TODO: Add QID validator and QIDField
-    focus = RegexField(regex="(Q|q)\d+", allow_blank=False, min_length=2, max_length=20,
-                       help_text="Wikidata Item Identifier (ex. Q59961716)")
+class WikidataConformanceSerializer(DjangoWikidataAPIReadOnlySerializer):
+    """ Wikidata Conformance Serializer """
+    focus = WDItemIDField(allow_blank=False)
     reason = CharField(allow_null=False, allow_blank=False)
     result = BooleanField(allow_null=True)
 
-    def create(self, validated_data):
-        # TODO: Add a create method that would call a .create method of the model
-        pass
 
-    def update(self, instance, validated_data):
-        # TODO: Add a update method that would call a .update method of the model
-        pass
-
-
-class WikidataItemQuerySerializer(Serializer):
+class WikidataItemQuerySerializer(DjangoWikidataAPIReadOnlySerializer):
     """ Serializer for the Get a Wikidata Item Query Parameters """
 
     class Meta(SerializerMetaclass):
@@ -57,11 +99,11 @@ class WikidataItemListQuerySerializer(WikidataItemQuerySerializer):
 
 
 class WikidataItemMinimalSerializer(WikidataItemSerializer):
-
+    """ Wikidata Item List View Serializer """
     class Meta(WikidataItemSerializer.Meta):
+        """ Meta Options. """
         ref_name = "Wikidata Item Summary"
 
-    id = RegexField(regex="(Q|q)\d+", allow_blank=False, min_length=2, max_length=20,
-                    help_text="Wikidata Item Identifier (ex. Q59961716)")
+    id = WDItemIDField(allow_blank=False)
     label = CharField()
     description = CharField()

@@ -12,6 +12,7 @@ from django_wikidata_api.fields import (
     WikidataEntityListField,
     WikidataListField,
 )
+from django_wikidata_api.serializers import WDPropertyIDField
 
 
 class CustomTestModel(WikidataItemBase):
@@ -24,6 +25,7 @@ class CustomTestModel(WikidataItemBase):
         property_fields = (
             ModelPropertyField("test_property", CharField()),
             ModelPropertyField("color", CharField(source='test_property_2')),
+            ModelPropertyField("wd_prop", WDPropertyIDField()),
             ModelPropertyField("test_attr", CharField()),
             ModelPropertyField("age", CharField(source="test_attr_2"))
         )
@@ -34,6 +36,7 @@ class CustomTestModel(WikidataItemBase):
     hidden_field = WikidataEntityListField(properties=['P1234'], required=True, public=False)
     test_attr = "Test Attr"
     test_attr_2 = 37
+    wd_prop = "P123"
 
     @property
     def test_property(self):
